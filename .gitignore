@@ -1,0 +1,19 @@
+# Entorno y caché
+venv/
+__pycache__/
+*.pyc
+
+# Animaciones (Remotion): dependencias y paquete compilado
+motion/node_modules/
+motion/.bundle/
+
+# Datos generados (videos, métricas, configuración local)
+runs/
+data/
+assets/music/
+
+# Credenciales antiguas en texto plano (no deben existir; usar la interfaz)
+config.yaml
+client_secret.json
+*token*.pickle
+*.env

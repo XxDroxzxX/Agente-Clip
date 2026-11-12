@@ -1,0 +1,18 @@
+{
+  "name": "agente-motion",
+  "private": true,
+  "type": "module",
+  "description": "Animaciones del Agente de Clips (Remotion). Se renderizan como capas transparentes sobre las tomas.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "browser": "remotion browser ensure"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.539",
+    "@remotion/cli": "4.0.539",
+    "@remotion/renderer": "4.0.539",
+    "react": "19.2.9",
+    "react-dom": "19.2.9",
+    "remotion": "4.0.539"
+  }
+}

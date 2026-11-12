@@ -1,0 +1,14 @@
+# Agente de Clips — dependencias (probadas con Python 3.14 en Windows 11)
+fastapi==0.162.5
+uvicorn[standard]==0.54.0
+python-multipart==0.0.33
+pydantic==2.14.3
+keyring==25.7.0
+requests==2.34.2
+PyYAML==6.0.3
+anthropic==2.8.0
+edge-tts==7.3.1
+imageio-ffmpeg==0.8.1
+google-api-python-client==2.202.0
+google-auth==2.62.2
+google-auth-oauthlib==1.5.0
