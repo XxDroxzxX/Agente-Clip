@@ -89,13 +89,61 @@ def recompute(min_age_hours: float) -> dict:
         styles[style]["n"] += 1
         styles[style]["sum"] += r
 
+    # además del gancho, se mide qué rasgos del video rinden mejor (música, duración, animaciones, voz)
+    dims: dict[str, dict] = defaultdict(lambda: defaultdict(lambda: {"n": 0, "sum": 0.0}))
+    for key, s in latest.items():
+        h = hist[key]
+        mean, rng = stats_p[key[0]]
+        r = (reward(s["views"], s["likes"], s["comments"]) - mean) / rng
+        for dim, val in _traits(h).items():
+            if val is not None:
+                dims[dim][val]["n"] += 1
+                dims[dim][val]["sum"] += r
+
     result = {
         "updated": time.time(),
         "samples": len(latest),
         "styles": {k: {"n": v["n"], "mean": round(v["sum"] / v["n"], 4)} for k, v in styles.items()},
+        "traits": {d: {k: {"n": v["n"], "mean": round(v["sum"] / v["n"], 4)} for k, v in vals.items()}
+                   for d, vals in dims.items()},
     }
     write_json(LEARNING_FILE, result)
     return result
+
+
+def _traits(h: dict) -> dict:
+    dur = h.get("duration")
+    bucket = None
+    if dur:
+        if h.get("format") == "long" or dur > 90:
+            bucket = "largo <4 min" if dur < 240 else "largo 4-8 min" if dur < 480 else "largo >8 min"
+        else:
+            bucket = "short <35 s" if dur < 35 else "short 35-50 s" if dur < 50 else "short >50 s"
+    anims = h.get("animations")
+    return {
+        "music_mood": h.get("music_mood"),
+        "duration": bucket,
+        "animations": None if anims is None else ("sin animaciones" if anims == 0 else
+                                                  "pocas (1-2)" if anims <= 2 else "varias (3+)"),
+        "voice_engine": h.get("voice_engine"),
+    }
+
+
+TRAIT_LABELS = {"music_mood": "música", "duration": "duración", "animations": "animaciones", "voice_engine": "voz"}
+
+
+def insights(min_n: int = 2) -> list[str]:
+    """Frases para el guionista: qué rasgos han rendido mejor con suficientes datos."""
+    out = []
+    for dim, vals in (load_learning().get("traits") or {}).items():
+        good = {k: v for k, v in vals.items() if v["n"] >= min_n}
+        if len(good) < 2:
+            continue
+        best = max(good.items(), key=lambda kv: kv[1]["mean"])
+        worst = min(good.items(), key=lambda kv: kv[1]["mean"])
+        if best[1]["mean"] - worst[1]["mean"] > 0.1:
+            out.append(f"{TRAIT_LABELS.get(dim, dim)}: rinde mejor «{best[0]}» que «{worst[0]}»")
+    return out
 
 
 def load_learning() -> dict:

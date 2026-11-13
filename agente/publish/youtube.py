@@ -28,22 +28,59 @@ def connect_interactive() -> str:
     except json.JSONDecodeError:
         raise RuntimeError("El OAuth client de YouTube no es un JSON válido.")
     flow = InstalledAppFlow.from_client_config(config, SCOPES)
-    creds = flow.run_local_server(port=0, open_browser=True, access_type="offline", prompt="consent",
-                                  authorization_prompt_message="", success_message=
-                                  "Canal conectado. Ya puedes cerrar esta pestaña y volver al Agente de Clips.")
+    try:
+        creds = flow.run_local_server(port=0, open_browser=True, access_type="offline", prompt="consent",
+                                      authorization_prompt_message="", timeout_seconds=300, success_message=
+                                      "Canal conectado. Ya puedes cerrar esta pestaña y volver al Agente de Clips.")
+    except Exception as e:
+        text = str(e).lower()
+        if "access_denied" in text:
+            raise RuntimeError("Google denegó el acceso. Si viste «Acceso bloqueado», agrega tu cuenta de Google como "
+                               "usuario de prueba o publica la app (ver «¿Cómo lo obtengo?» en Conexiones).")
+        raise RuntimeError("No se completó la autorización en 5 minutos. Si Google mostró «Acceso bloqueado: la app no "
+                           "completó la verificación», sigue los pasos de «¿Cómo lo obtengo?» en Conexiones.")
+    if creds is None:
+        raise RuntimeError("No se recibió la autorización de Google. Vuelve a intentarlo.")
     S.set_secret("youtube_token", creds.to_json())
     return channel_name(creds) or "canal conectado"
 
 
+EXPIRED_MSG = ("La autorización de YouTube venció o fue revocada. Vuelve a conectar el canal en Configuración → "
+               "Conexiones. Si vence cada 7 días, es porque la app de Google está en modo «Prueba»: publícala "
+               "(ver «¿Cómo lo obtengo?»).")
+
+
+class YouTubeAuthExpired(RuntimeError):
+    pass
+
+
 def get_credentials() -> Credentials | None:
+    from google.auth.exceptions import RefreshError
+
     info = S.get_json_secret("youtube_token")
     if not info:
         return None
     creds = Credentials.from_authorized_user_info(info, SCOPES)
     if not creds.valid and creds.refresh_token:
-        creds.refresh(Request())
+        try:
+            creds.refresh(Request())
+        except RefreshError:  # invalid_grant: vencida (modo Prueba = 7 días) o revocada
+            raise YouTubeAuthExpired(EXPIRED_MSG)
         S.set_secret("youtube_token", creds.to_json())
     return creds if creds.valid else None
+
+
+def status() -> tuple[str | None, str | None]:
+    """(nombre del canal, error). Para mostrar el estado real de la conexión."""
+    try:
+        creds = get_credentials()
+    except YouTubeAuthExpired as e:
+        return None, str(e)
+    except Exception as e:
+        return None, f"No se pudo verificar la conexión: {str(e)[:150]}"
+    if not creds:
+        return None, EXPIRED_MSG
+    return channel_name(creds), None
 
 
 def _client(creds=None):
@@ -64,7 +101,8 @@ def channel_name(creds=None) -> str | None:
 
 
 def upload(video: Path, title: str, description: str, tags: list[str], privacy: str, category: str,
-           language: str, is_short: bool, on_progress: Callable[[float], None]) -> dict:
+           language: str, is_short: bool, on_progress: Callable[[float], None],
+           thumbnail: Path | None = None) -> dict:
     from googleapiclient.http import MediaFileUpload
 
     yt = _client()
@@ -91,11 +129,21 @@ def upload(video: Path, title: str, description: str, tags: list[str], privacy: 
     vid = resp["id"]
     actual = resp.get("status", {}).get("privacyStatus", privacy)
     url = f"https://youtube.com/shorts/{vid}" if is_short else f"https://youtu.be/{vid}"
-    note = ""
+    notes = []
     if actual != privacy:
-        note = (f"YouTube dejó el video como «{actual}». Los proyectos de API sin auditoría "
-                "solo pueden publicar en privado.")
-    return {"platform_id": vid, "url": url, "privacy": actual, "note": note}
+        notes.append(f"YouTube dejó el video como «{actual}». Los proyectos de API sin auditoría "
+                     "solo pueden publicar en privado.")
+    if thumbnail and Path(thumbnail).is_file() and not is_short:
+        try:
+            yt.thumbnails().set(videoId=vid, media_body=MediaFileUpload(str(thumbnail), mimetype="image/jpeg")).execute()
+        except Exception as e:
+            text = str(e)
+            if "forbidden" in text.lower() or "403" in text:
+                notes.append("La miniatura no se aplicó: YouTube exige verificar el canal con tu teléfono "
+                             "(youtube.com/verify) para usar miniaturas personalizadas.")
+            else:
+                notes.append(f"La miniatura no se aplicó ({text[:150]}).")
+    return {"platform_id": vid, "url": url, "privacy": actual, "note": " ".join(notes)}
 
 
 def fetch_stats(ids: list[str]) -> dict[str, dict]:

@@ -19,7 +19,7 @@
 3. **Sintetiza** narraciones de calidad de estudio con voces neurales y tiempos por palabra.
 4. **Selecciona** material visual de alta calidad mediante **visión artificial** (analizando miniaturas y contenido con IA).
 5. **Genera** gráficos animados en **Remotion** sincronizados al milisegundo con la voz.
-6. **Masteriza** el producto final con subtítulos estilo karaoke, música de fondo dinámica con *ducking* y normalización EBU R128 (-14 LUFS).
+6. **Masteriza** el producto final con subtítulos estilo karaoke, música de fondo **generada automáticamente según el tono de cada video** (gratis, sin derechos de autor; opcional Lyria de Google), con *ducking* y normalización EBU R128 (-14 LUFS).
 7. **Publica** automáticamente en **YouTube, TikTok y Facebook**.
 8. **Aprende** de las métricas de engagement mediante algoritmos de aprendizaje por refuerzo para optimizar futuros videos.
 
@@ -47,7 +47,9 @@ flowchart TD
 
 ### 🧠 Inteligencia Artificial Flexible
 - **Modelos de Lenguaje:** Compatible con **Google Gemini** (cuenta gratuita sin tarjeta), **Anthropic Claude** o modelos locales offline con **Ollama** (`qwen2.5:7b`, `llama3`, etc.).
-- **Curación Visual con Visión:** Un agente visual inspecciona los fotogramas candidatos de stock y selecciona los que mejor representan la escena narrada, descartando material con marcas de agua o baja resolución.
+- **Curación Visual con Visión:** Un agente visual inspecciona los fotogramas candidatos de stock y selecciona los que mejor representan la escena narrada. Descarta el material sin relación o que contradice el tema del canal y, si falta, busca tomas genéricas del nicho en lugar de usar relleno.
+- **Revisión de Calidad con IA:** Antes de publicar, Gemini mira cuadros del video final y escucha su audio; los videos reprobados no se publican automáticamente.
+- **Voz con Gemini TTS (opcional):** Voz más expresiva y gratuita, con tiempos por palabra estimados a partir de las pausas del audio.
 - **Continuidad de Video con IA (Opcional):** Integración con **fal.ai** mediante técnicas *Image-to-Video* encadenadas fotograma a fotograma para máxima coherencia visual.
 
 ### 🎨 Gráficos en Movimiento con Remotion
@@ -57,16 +59,18 @@ Cinco plantillas modulares programadas en React que se superponen como capas tra
 - **`Dato`:** Contadores numéricos interactivos y anillos de porcentaje progresivos.
 - **`Frase`:** Tarjetas minimalistas para citas o reflexiones memorables.
 - **`Cta`:** Llamado a la acción final con botón animado.
+- **`Miniatura`:** Miniatura de YouTube para el video largo (imagen fija con texto de alto contraste).
 
 ### 🎧 Audio y Masterización Profesional
 - Subtítulos generados con estilo karaoke quemados en el video.
-- Música de fondo con mezcla inteligente (*audio ducking*): la música baja de volumen automáticamente cuando hay voz.
+- Música de fondo **generada para cada video** según su estado de ánimo (gratis y sin derechos de autor), con mezcla inteligente (*audio ducking*): baja de volumen cuando hay voz.
+- Efectos de sonido sintetizados y acercamiento rápido en los cambios de escena.
 - Normalización acústica estandarizada a **-14 LUFS**.
 
 ### 📊 Aprendizaje Continuo (Multi-Armed Bandit)
 El agente clasifica los guiones según su gancho (*Pregunta, Dato Sorprendente, Error Común, Historia, Promesa, Contraintuitivo*). Transcurridas 48 horas de publicación, analiza vistas e interacciones mediante:
 $$\text{Recompensa} = \log(\text{Vistas}) \times (1 + 5 \times \text{Engagement})$$
-Optimizando la probabilidad de selección de los estilos con mayor retención mediante una estrategia *$\epsilon$-greedy*.
+Optimizando la probabilidad de selección de los estilos con mayor retención mediante una estrategia *$\epsilon$-greedy*. También mide qué música, duración, animaciones y voz rinden mejor y se lo indica al guionista.
 
 ### 🔒 Seguridad de Credenciales
 Ninguna clave secreta o token se almacena en archivos de texto plano o en el repositorio Git. Toda la configuración confidencial se resguarda en el **Administrador de Credenciales de Windows** (Windows Credential Manager / DPAPI).
@@ -199,7 +203,7 @@ Agente-Clip/
 │   ├── server.py           # Servidor API REST y websockets
 │   └── static/             # Frontend reactivo (HTML5/CSS3/ES6)
 │
-└── assets/                 # Recursos locales (música libre de derechos, fuentes)
+└── assets/                 # Recursos locales opcionales (música propia, fuentes)
 ```
 
 ---

@@ -25,6 +25,37 @@ def page_info(version: str) -> dict:
     return data
 
 
+def normalize_token(token: str, version: str) -> tuple[str, str]:
+    """Si pegan un token de USUARIO, obtiene el token de la página (que no vence si el de usuario es de larga
+    duración). Devuelve (token_a_guardar, aviso para el usuario)."""
+    try:
+        r = requests.get(f"https://graph.facebook.com/{version}/me/accounts", timeout=30,
+                         params={"fields": "name,access_token", "access_token": token}).json()
+    except Exception:
+        return token, ""
+    pages = r.get("data") if isinstance(r, dict) else None
+    note = ""
+    if pages:  # era un token de usuario
+        page = pages[0]
+        token = page["access_token"]
+        note = f"Se detectó un token de usuario: se guardó el token de la página «{page.get('name')}»."
+        if len(pages) > 1:
+            note += f" (Tienes {len(pages)} páginas; se usa la primera.)"
+    elif isinstance(r, dict) and r.get("error", {}).get("code") == 190:
+        raise RuntimeError("Ese token de Facebook ya venció o no es válido. Genera uno nuevo (ver «¿Cómo lo obtengo?»).")
+    try:
+        info = requests.get("https://graph.facebook.com/oauth/access_token_info", timeout=20,
+                            params={"access_token": token}).json()
+        exp = info.get("expires_in")
+        if exp and int(exp) < 7 * 86400:
+            hours = int(exp) // 3600
+            note += (f" Atención: este token vence en ~{hours} h. Para uno permanente, extiende primero el token de "
+                     "usuario en el Depurador de tokens y pégalo aquí (ver «¿Cómo lo obtengo?»).")
+    except Exception:
+        pass
+    return token, note.strip()
+
+
 def upload_video(video: Path, title: str, description: str, version: str, on_progress: Callable[[float], None]) -> dict:
     page = page_info(version)
     on_progress(0.1)

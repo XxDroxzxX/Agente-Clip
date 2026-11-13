@@ -182,15 +182,18 @@ def _readiness(cfg: dict, sec: dict) -> list[dict]:
         r.append({"ok": sec["tiktok_token"], "label": "TikTok conectado", "hint": "Para publicar Shorts en TikTok", "critical": False})
     if p["facebook"]:
         r.append({"ok": sec["facebook_page_token"], "label": "Facebook Page token", "hint": "Para publicar en tu página", "critical": False})
+    if p.get("instagram"):
+        r.append({"ok": sec["facebook_page_token"], "label": "Instagram (token de página)",
+                  "hint": "Reels en tu Instagram profesional vinculado a la página", "critical": False})
     if cfg["video"]["visual_provider"] == "pexels" and cfg["video"].get("smart_clips", "auto") != "off":
         from agente import vision
         prov = vision.provider(cfg)
         r.append({"ok": prov is not None, "label": "Selección de clips con visión",
                   "hint": f"Con {'Gemini (gratis)' if prov == 'gemini' else 'Claude'}" if prov
                   else "Agrega la Gemini API key (gratis) para que la IA elija los clips", "critical": False})
-    music = any(MUSIC_DIR.glob("*.mp3")) or any(MUSIC_DIR.glob("*.m4a")) or any(MUSIC_DIR.glob("*.wav"))
-    if cfg["video"]["music"]:
-        r.append({"ok": music, "label": "Música de fondo", "hint": "Agrega .mp3 libres de derechos en assets/music", "critical": False})
+    if cfg["video"]["music"] and cfg["video"].get("music_source") == "lyria":
+        r.append({"ok": sec["gemini_api_key"], "label": "Música con Lyria", "hint": "Usa la Gemini API key (con facturación activa); si falla, se genera",
+                  "critical": False})
     return r
 
 
@@ -248,6 +251,18 @@ def publish_run(run_id: str):
     if not any((d / k / "final.mp4").is_file() for k in read_json(d / "run.json", {}).get("items", {})):
         raise HTTPException(400, "Este run no tiene videos terminados.")
     _spawn(["--publish-only", run_id], run_id)
+    return {"id": run_id}
+
+
+@app.post("/api/runs/{run_id}/resume")
+def resume_run(run_id: str):
+    d = _run_dir(run_id)
+    st = read_json(d / "run.json", {})
+    if st.get("status") not in ("failed", "cancelled", "interrupted"):
+        raise HTTPException(400, "Solo se pueden reintentar runs fallidos o cancelados.")
+    if st.get("options", {}).get("mode") == "metrics":
+        raise HTTPException(400, "Para métricas, inicia una actualización nueva.")
+    _spawn(["--resume", run_id], run_id)
     return {"id": run_id}
 
 
@@ -344,7 +359,20 @@ def get_settings():
             "secret_meta": {k: {"label": v[0], "help": v[1]} for k, v in S.SECRETS.items()},
             "redirect_uri": REDIRECT_URI, "music_dir": str(MUSIC_DIR),
             "music_files": sorted(p.name for p in MUSIC_DIR.glob("*") if p.is_file()),
-            "motion": dict(zip(("ok", "msg"), motion.status()))}
+            "motion": dict(zip(("ok", "msg"), motion.status())),
+            "gemini_voices": __import__("agente.tts", fromlist=["GEMINI_VOICES"]).GEMINI_VOICES}
+
+
+@app.get("/api/storage")
+def storage_usage():
+    from agente import cleanup
+    return cleanup.usage()
+
+
+@app.post("/api/storage/cleanup")
+def storage_cleanup():
+    from agente import cleanup
+    return cleanup.run(S.load(), force=True)
 
 
 @app.put("/api/settings")
@@ -368,9 +396,17 @@ def put_secret(name: str, body: dict = Body(...)):
                 raise ValueError
         except ValueError:
             raise HTTPException(400, "Pega el contenido completo de client_secret.json (con la clave «installed»).")
+    note = ""
+    if name == "facebook_page_token":
+        from agente.publish import facebook
+        try:
+            value, note = facebook.normalize_token(value, S.load()["publish"]["facebook_graph_version"])
+        except RuntimeError as e:
+            raise HTTPException(400, str(e))
     S.set_secret(name, value)
     _cache.pop("fb_page", None)
-    return {"ok": True}
+    _cache.pop("ig_acc", None)
+    return {"ok": True, "note": note}
 
 
 @app.delete("/api/secrets/{name}")
@@ -416,7 +452,7 @@ def _friendly_error(service: str, e: Exception) -> str:
 
 
 _TEST_LABELS = {"gemini": "Gemini", "anthropic": "Claude", "pexels": "Pexels", "pixabay": "Pixabay", "youtube_api": "YouTube",
-                "facebook": "Facebook", "ollama": "Ollama"}
+                "facebook": "Facebook", "instagram": "Instagram", "ollama": "Ollama"}
 
 
 @app.post("/api/test/{service}")
@@ -482,6 +518,15 @@ def test_service(service: str):
                 return no_key
             info = facebook.page_info(S.load()["publish"]["facebook_graph_version"])
             return {"ok": True, "msg": f"Página: {info.get('name')}"}
+        if service == "instagram":
+            from agente.publish import instagram
+            if not S.get_secret("facebook_page_token"):
+                return {"ok": False, "msg": "Primero guarda el Facebook Page access token"}
+            try:
+                ig = instagram.account(S.load()["publish"]["facebook_graph_version"])
+            except RuntimeError as e:
+                return {"ok": False, "msg": str(e)}
+            return {"ok": True, "msg": f"Instagram vinculado: @{ig.get('username', '?')}"}
         if service == "ollama":
             cfg = S.load()["llm"]
             base, model = cfg["ollama_url"].rstrip("/"), cfg["ollama_model"]
@@ -511,23 +556,40 @@ def _fb_page() -> tuple[str | None, str | None]:
     try:
         return facebook.page_info(S.load()["publish"]["facebook_graph_version"]).get("name"), None
     except Exception as e:
+        msg = str(e)
+        if "expired" in msg.lower() or "session has expired" in msg.lower():
+            return None, ("El token de Facebook venció. Genera un token de página que no vence "
+                          "(ver «¿Cómo lo obtengo?») y guárdalo de nuevo.")
         return None, _friendly_error("Facebook", e)
+
+
+def _ig_account() -> tuple[str | None, str | None]:
+    from agente.publish import instagram
+    try:
+        ig = instagram.account(S.load()["publish"]["facebook_graph_version"])
+        return "@" + ig.get("username", "?"), None
+    except Exception as e:
+        return None, str(e)[:300]
 
 
 @app.get("/api/connections")
 def connections():
     sec = S.secrets_status()
-    out = {"youtube": {"connected": sec["youtube_token"], "name": None, "pending": _connect_state["youtube"]},
+    out = {"youtube": {"connected": sec["youtube_token"], "name": None, "error": None, "pending": _connect_state["youtube"]},
            "tiktok": {"connected": sec["tiktok_token"], "name": None},
-           "facebook": {"connected": sec["facebook_page_token"], "name": None, "error": None}}
+           "facebook": {"connected": sec["facebook_page_token"], "name": None, "error": None},
+           "instagram": {"connected": False, "name": None, "error": None}}
     if sec["youtube_token"]:
         from agente.publish import youtube
-        out["youtube"]["name"] = _cached("yt_name", youtube.channel_name)
+        out["youtube"]["name"], out["youtube"]["error"] = _cached("yt_name", youtube.status)
     if sec["tiktok_token"]:
         from agente.publish import tiktok
         out["tiktok"]["name"] = _cached("tt_name", tiktok.user_name)
     if sec["facebook_page_token"]:
         out["facebook"]["name"], out["facebook"]["error"] = _cached("fb_page", _fb_page)
+        if S.load()["publish"].get("instagram") and not out["facebook"]["error"]:
+            out["instagram"]["name"], out["instagram"]["error"] = _cached("ig_acc", _ig_account)
+            out["instagram"]["connected"] = bool(out["instagram"]["name"])
     return out
 
 

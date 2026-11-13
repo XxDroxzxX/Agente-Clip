@@ -17,14 +17,16 @@ from . import settings as S
 MAX_IMAGES_PER_CALL = 24
 CLAUDE_VISION_MODEL = "claude-haiku-5-5"
 
-PROMPT = """Eres editor de video para redes sociales. Para cada escena verás la narración y varios clips
-candidatos (una miniatura de cada uno). Ordena los candidatos de cada escena del MÁS al MENOS adecuado.
+PROMPT = """Eres editor de video para redes sociales de un canal sobre «{niche}». Para cada escena verás la
+narración y clips candidatos (una miniatura de cada uno). Ordena los candidatos de cada escena del MÁS al MENOS adecuado.
 Criterios, en este orden:
 1. Que muestre de forma concreta lo que dice la narración (no solo algo del mismo tema).
 2. Calidad visual: nítido, bien iluminado, atractivo.
 3. Sin texto incrustado, marcas de agua ni logos visibles.
 4. Que funcione en formato {orient}.
-Excluye del ranking los candidatos que no tienen relación con la escena.
+EXCLUYE del ranking (no los pongas) los candidatos sin relación con la escena, los abstractos o de relleno
+(manchas de color, paisajes sin relación, instrumentos musicales, etc.) y los que contradigan el tema del canal
+(p. ej. carne, pescado o huevos en un canal vegano). Si ninguno sirve, devuelve un ranking vacío para esa escena.
 Responde solo con el JSON pedido. Los números de candidato son los que aparecen antes de cada imagen."""
 
 
@@ -51,7 +53,7 @@ def provider(cfg: dict) -> str | None:
 
 
 def _ask(prov: str, cfg: dict, parts: list, orient: str, log) -> Ranking:
-    system = PROMPT.format(orient=orient)
+    system = PROMPT.format(orient=orient, niche=cfg["content"]["niche"])
     if prov == "gemini":
         from . import gemini
         inp = [{"type": "text", "text": p} if isinstance(p, str)
@@ -108,8 +110,8 @@ def rank_scenes(cfg: dict, scenes: list[dict], portrait: bool,
 
     for sc in scenes:
         n = sum(1 for t in sc["thumbs"] if t is not None)
-        if n < 2:
-            continue  # nada que elegir
+        if n < 1:
+            continue  # un candidato único también se revisa: puede no tener relación
         if count + n > MAX_IMAGES_PER_CALL:
             flush()
         batch.append(sc)
@@ -118,4 +120,24 @@ def rank_scenes(cfg: dict, scenes: list[dict], portrait: bool,
     if out:
         log(f"Clips elegidos con visión ({'Gemini' if prov == 'gemini' else 'Claude'}) para {len(out)} escenas.", "info")
     return out
+
+
+def rank_pool(cfg: dict, scenes: list[dict], pool: list, portrait: bool,
+              log: Callable[[str, str], None]) -> dict[int, list[int]]:
+    """Segunda vuelta: varias escenas eligen de un mismo grupo de clips genéricos del nicho.
+    scenes: [{"scene": i, "narration": str}]; pool: [Path|None]. Devuelve {scene: [índices del pool]}."""
+    prov = provider(cfg)
+    if not prov or not scenes or not any(pool):
+        return {}
+    parts: list = [f"ESCENA {sc['scene']}: «{sc['narration']}»" for sc in scenes]
+    parts.append("Candidatos compartidos por todas las escenas (cada uno se usará en una sola escena):")
+    for j, t in enumerate(pool[:MAX_IMAGES_PER_CALL]):
+        if t is not None:
+            parts += [f"Candidato {j}", t]
+    try:
+        res = _ask(prov, cfg, parts, "vertical 9:16" if portrait else "horizontal 16:9", log)
+    except Exception as e:
+        log(f"Segunda selección de clips no disponible ({e}).", "warn")
+        return {}
+    return {r.scene: list(dict.fromkeys(j for j in r.ranking if isinstance(j, int))) for r in res.scenes}
 

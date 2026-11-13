@@ -65,13 +65,23 @@ DEFAULTS: dict[str, Any] = {
         "subtitles": True,
         "music": True,
         "music_volume": 0.12,
+        "music_source": "generada",  # generada (gratis) | lyria (Gemini, de pago) | carpeta (assets/music)
         "smart_clips": "auto",      # auto | gemini | claude | off — IA con visión elige los clips
         "animations": True,         # capas animadas con Remotion
         "anim_color": "#FFD633",    # color de resaltado de las animaciones
+        "sfx": True,                # whoosh con las animaciones y en los cambios de escena
+        "transitions": True,
+        "thumbnail": True,          # miniatura personalizada (Remotion) para el video largo
+        "review": "auto",           # auto | gemini | claude | off — revisión de calidad con IA tras el montaje
+        "review_block": True,       # la publicación automática se salta los videos reprobados
+        "review_min_score": 6,        # acercamiento rápido («punch-in») al cambiar de escena
     },
     "voice": {
+        "engine": "edge",           # edge (Microsoft, tiempos exactos) | gemini (Gemini TTS, más expresiva)
         "name": "es-MX-JorgeNeural",
         "rate": "+6%",
+        "gemini_voice": "Puck",
+        "gemini_style": "cercano y con energía, como un creador de contenido latino, ritmo ágil",
     },
     "publish": {
         "auto_publish": False,
@@ -82,7 +92,16 @@ DEFAULTS: dict[str, Any] = {
         "tiktok_mode": "inbox",         # inbox (borrador) | direct
         "tiktok_privacy": "SELF_ONLY",
         "facebook": False,
+        "instagram": False,             # Reels con el mismo token de página (cuenta IG profesional vinculada)
         "facebook_graph_version": "v24.0",
+    },
+    "general": {
+        "notify": True,             # aviso de Windows al terminar (o fallar) un run
+    },
+    "storage": {
+        "keep_work_days": 7,        # archivos de trabajo (tomas, audios) de runs más viejos se borran
+        "cache_max_gb": 5,          # tope de la caché de clips de stock
+        "delete_videos_days": 0,    # 0 = nunca borrar los videos finales
     },
     "metrics": {
         "min_age_hours": 48,

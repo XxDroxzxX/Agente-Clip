@@ -104,8 +104,9 @@ def render(jobs: list[dict], jobs_file: Path, log: Callable[[str, str], None],
     if not ok:
         log(f"Animaciones omitidas: {msg}", "warn")
         return set()
-    jobs_file.write_text(json.dumps([{"out": str(j["out"]), "props": j["props"]} for j in jobs],
-                                    ensure_ascii=False), encoding="utf-8")
+    jobs_file.write_text(json.dumps([{"out": str(j["out"]), "props": j["props"],
+                                      "composition": j.get("composition", "Overlay"), "still": j.get("still", False)}
+                                     for j in jobs], ensure_ascii=False), encoding="utf-8")
     proc = subprocess.Popen(["node", "render.mjs", str(jobs_file)], cwd=MOTION_DIR,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
                             errors="replace", creationflags=CREATE_NO_WINDOW)

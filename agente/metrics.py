@@ -5,7 +5,7 @@ import time
 
 from . import learning
 from .events import Run
-from .publish import facebook, youtube
+from .publish import facebook, instagram, youtube
 
 
 def collect(run: Run, cfg: dict) -> dict:
@@ -28,13 +28,15 @@ def collect(run: Run, cfg: dict) -> dict:
             if h["platform_id"] in stats:
                 rows.append({"ts": now, "platform": "youtube", "platform_id": h["platform_id"],
                              "age_hours": round((now - h["published_at"]) / 3600, 1), **stats[h["platform_id"]]})
-    if by_platform.get("facebook"):
-        run.step_progress(sid, 0.6, f"Facebook: {len(by_platform['facebook'])} publicaciones")
-        stats = facebook.fetch_stats([h["platform_id"] for h in by_platform["facebook"]],
-                                     cfg["publish"]["facebook_graph_version"])
-        for h in by_platform["facebook"]:
+    for name, label, fetch, prog in (("facebook", "Facebook", facebook.fetch_stats, 0.55),
+                                     ("instagram", "Instagram", instagram.fetch_stats, 0.75)):
+        if not by_platform.get(name):
+            continue
+        run.step_progress(sid, prog, f"{label}: {len(by_platform[name])} publicaciones")
+        stats = fetch([h["platform_id"] for h in by_platform[name]], cfg["publish"]["facebook_graph_version"])
+        for h in by_platform[name]:
             if h["platform_id"] in stats:
-                rows.append({"ts": now, "platform": "facebook", "platform_id": h["platform_id"],
+                rows.append({"ts": now, "platform": name, "platform_id": h["platform_id"],
                              "age_hours": round((now - h["published_at"]) / 3600, 1), **stats[h["platform_id"]]})
     if by_platform.get("tiktok"):
         run.info("TikTok: la Content Posting API no expone métricas; se omiten.", sid)

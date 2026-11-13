@@ -47,6 +47,19 @@ def run(args: list, cwd: Path | None = None, duration: float | None = None,
         raise FFmpegError(f"ffmpeg falló ({proc.returncode}): {err.strip()[-1500:]}")
 
 
+_LUFS_RE = re.compile(r"^\s+I:\s+(-?\d+(?:\.\d+)?)\s+LUFS", re.M)
+
+
+def measure_lufs(path: Path) -> float | None:
+    """Sonoridad integrada (EBU R128) del audio. None si no se pudo medir.
+    -70 LUFS es el piso del medidor: silencio o casi silencio."""
+    proc = subprocess.run([ffmpeg_exe(), "-hide_banner", "-nostats", "-i", str(path), "-af", "ebur128=framelog=quiet",
+                           "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace",
+                          creationflags=CREATE_NO_WINDOW)
+    found = _LUFS_RE.findall(proc.stderr)
+    return float(found[-1]) if found else None
+
+
 _DUR_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 
 

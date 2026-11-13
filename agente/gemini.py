@@ -7,7 +7,9 @@ En el plan gratuito Google puede usar el contenido enviado para mejorar sus prod
 """
 from __future__ import annotations
 
+import base64
 import copy
+import time
 from typing import Callable
 
 import requests
@@ -84,37 +86,66 @@ def generate(models: list[str], input, system: str | None = None, schema: dict |
              thinking: str | None = None, timeout: int = 600,
              log: Callable[[str], None] | None = None) -> tuple[str, str]:
     """Devuelve (texto, modelo_usado). Recorre `models` mientras haya cuota agotada o modelo no disponible."""
+    body: dict = {"input": input}
+    if system:
+        body["system_instruction"] = system
+    if schema:
+        body["response_format"] = {"type": "text", "mime_type": "application/json", "schema": clean_schema(schema)}
+    if thinking:
+        body["generation_config"] = {"thinking_level": thinking}
+    data, m = interact(models, body, timeout, log)
+    return _output_text(data), m
+
+
+def interact(models: list[str], body: dict, timeout: int = 600,
+             log: Callable[[str], None] | None = None) -> tuple[dict, str]:
+    """POST /interactions con `body` (sin «model») probando cada modelo. Devuelve (respuesta, modelo_usado).
+    Un 503/500 (servidores saturados) se reintenta en el mismo modelo antes de pasar al siguiente."""
     key = api_key()
-    last = ""
+    reasons: list[str] = []
     for m in models:
-        body: dict = {"model": m, "input": input}
-        if system:
-            body["system_instruction"] = system
-        if schema:
-            body["response_format"] = {"type": "text", "mime_type": "application/json", "schema": clean_schema(schema)}
-        if thinking:
-            body["generation_config"] = {"thinking_level": thinking}
-        try:
-            r = requests.post(f"{API}/interactions", json=body, timeout=timeout,
-                              headers={"x-goog-api-key": key, "Api-Revision": REVISION})
-        except requests.ConnectionError:
-            raise GeminiError("No hay conexión con la API de Gemini.")
-        except requests.Timeout:
-            last = f"{m}: tardó demasiado"
-            continue
-        if r.ok:
-            return _output_text(r.json()), m
-        msg = _error_msg(r)
-        if r.status_code in (401, 403) or "api key not valid" in msg.lower():
-            raise GeminiError("La Gemini API key no es válida. Revísala en Configuración → Credenciales.")
-        if r.status_code in (404, 429) or r.status_code >= 500:
-            last = f"{m}: {'cuota gratuita agotada' if r.status_code == 429 else f'error {r.status_code}'}"
-            if log:
-                log(f"Gemini {last}; probando otro modelo.")
-            continue
-        raise GeminiError(f"Gemini rechazó la solicitud ({r.status_code}): {msg[:200]}")
-    raise GeminiError("Ningún modelo gratuito de Gemini respondió "
-                      f"({last}). La cuota gratuita se renueva cada día; también puedes usar Claude u Ollama.")
+        for attempt in range(3):
+            try:
+                r = requests.post(f"{API}/interactions", json={"model": m, **body}, timeout=timeout,
+                                  headers={"x-goog-api-key": key, "Api-Revision": REVISION})
+            except requests.ConnectionError:
+                raise GeminiError("No hay conexión con la API de Gemini.")
+            except requests.Timeout:
+                reasons.append("tardó demasiado")
+                break
+            if r.ok:
+                return r.json(), m
+            msg = _error_msg(r)
+            if r.status_code in (401, 403) or "api key not valid" in msg.lower():
+                raise GeminiError("La Gemini API key no es válida. Revísala en Configuración → Credenciales.")
+            if r.status_code >= 500 and attempt < 2:
+                if log:
+                    log(f"Gemini {m}: servidores saturados (error {r.status_code}); reintento en {8 * (attempt + 1)} s.")
+                time.sleep(8 * (attempt + 1))
+                continue
+            if r.status_code in (404, 429) or r.status_code >= 500:
+                reasons.append("cuota agotada" if r.status_code == 429 else "no disponible" if r.status_code == 404
+                               else "saturado")
+                if log:
+                    log(f"Gemini {m}: {reasons[-1]}; probando otro modelo.")
+                break
+            raise GeminiError(f"Gemini rechazó la solicitud ({r.status_code}): {msg[:200]}")
+    if reasons and all(x == "cuota agotada" for x in reasons):
+        why = "la cuota gratuita de hoy se agotó; se renueva cada día"
+    elif "saturado" in reasons:
+        why = "los servidores de Google están saturados en este momento; pulsa «Reintentar» en unos minutos"
+    else:
+        why = ", ".join(dict.fromkeys(reasons)) or "sin respuesta"
+    raise GeminiError(f"Gemini no respondió: {why}. También puedes usar Claude u Ollama.")
+
+
+def output_audio(data: dict) -> bytes | None:
+    """Audio (bytes) del último bloque de audio de la respuesta."""
+    for step in reversed(data.get("steps") or []):
+        for c in reversed(step.get("content") or []):
+            if isinstance(c, dict) and c.get("type") == "audio" and c.get("data"):
+                return base64.b64decode(c["data"])
+    return None
 
 
 def list_models() -> list[str]:

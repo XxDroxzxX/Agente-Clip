@@ -101,17 +101,50 @@ Cada credencial tiene botón **Probar** para verificarla. Si hay clave de Pixaba
 ### Conexiones (una sola vez)
 
 - **YouTube:** guarda el OAuth client y pulsa *Conectar YouTube*; autoriza en la pestaña que se abre.
-- **Facebook:** no usa ventana de autorización; basta con guardar el *Page access token* en Credenciales. La sección Conexiones muestra el nombre de la página o el problema del token.
+  - **«Acceso bloqueado: la app no completó la verificación»:** en Google Cloud → *Google Auth Platform → Público*, pulsa **Publicar app** (recomendado). Al conectar verás «Google no verificó esta app»: *Configuración avanzada → Ir a … (no seguro)*. Es seguro porque la app es tuya, y la autorización no vence. La otra opción es dejarla en *Prueba* y agregar tu correo en **Usuarios de prueba**, pero en ese modo Google vence la autorización **cada 7 días**.
+  - Si la autorización vence o se revoca, Conexiones muestra «Hay que reconectar».
+- **Facebook:** no usa ventana de autorización; basta con guardar el token en Credenciales. Para que **no venza**, genera un token de *usuario* en el Explorador de la Graph API, extiéndelo en el *Depurador de tokens* (*Extend Access Token*) y pega ese token largo: la app obtiene sola el token de tu página, que no vence. Si pegas un token de página corto, deja de funcionar a las pocas horas («Session has expired»).
+- **Instagram Reels:** usa el mismo token. Tu Instagram debe ser profesional (empresa o creador), estar vinculado a la página y el token debe incluir `instagram_basic` e `instagram_content_publish`. Solo se publican los Shorts.
 - **TikTok:** en tu app de TikTok registra la *Redirect URI* `http://localhost:8585/callback`, activa *Login Kit* y *Content Posting API*, y pulsa *Conectar TikTok*. El token se renueva solo.
 
 ### Música
 
-Coloca archivos `.mp3` libres de derechos en `assets/music/`. Se elige uno al azar por video.
+No hace falta agregar nada. La IA del guion elige un estado de ánimo para cada video (energético, alegre, inspirador, tranquilo, misterioso, emotivo o tecnológico) y la música se crea con la duración exacta del video. En *Video y voz → Origen de la música* se elige:
+
+| Origen | Cómo funciona | Costo |
+|---|---|---|
+| Generada (por defecto) | Compositor propio: progresión de acordes, bajo, colchón, arpegios con eco y batería según el estado de ánimo, con intro, desarrollo y cierre | Gratis, sin conexión y sin derechos de autor |
+| Lyria (Google) | Música con IA a partir de una descripción que escribe la IA del guion. Usa la Gemini API key con facturación activa | ~US$0.04 (≤30 s) a US$0.08 por video |
+| Carpeta | Un archivo al azar de `assets/music/` | — |
+
+Si Lyria falla o la carpeta está vacía, se usa la música generada. La música generada lleva variaciones de intensidad y tiempo nota a nota, reverb de sala, ecualización que deja espacio a la voz (baja 2–4 kHz y 300 Hz), «bombeo» rítmico con el bombo y redobles cada 4 compases.
+
+### Voz
+
+| Motor | Ventajas | Notas |
+|---|---|---|
+| Microsoft Edge (por defecto) | Tiempos exactos por palabra para subtítulos y animaciones | Gratis, sin clave |
+| Gemini TTS | Más expresiva; el «Estilo de lectura» se describe con palabras | Gratis con la Gemini API key. Los tiempos por palabra se estiman alineando el texto con las pausas reales del audio. Si falla, ese video usa la voz de Edge |
+
+Las escenas se narran en paralelo (varias a la vez).
+
+### Calidad automática
+
+- **Selección de clips:** la IA con visión descarta los clips sin relación con la narración o que contradicen el tema del canal (p. ej. carne en un canal vegano). Si una escena se queda sin clip, se buscan tomas genéricas del nicho que el guion propone; si aun así faltan, las tomas de esa escena se funden en vez de usar relleno.
+- **Revisión con IA:** al terminar cada video, Gemini mira 10 cuadros y **escucha el audio completo** (Claude solo mira cuadros). Da una nota de 1 a 10 y lista los problemas con su momento. La publicación automática se salta los videos reprobados; se pueden publicar a mano.
+- **Ritmo:** efectos de sonido sintetizados (whoosh con cada animación, golpe en el gancho, barrido suave en los cambios de escena de los Shorts) y un acercamiento rápido al cambiar de escena.
+- **Miniatura de YouTube:** para el video largo, la IA elige el mejor cuadro y Remotion compone la miniatura con un texto corto que escribe el guion. YouTube exige verificar el canal con tu teléfono (youtube.com/verify) para aceptar miniaturas personalizadas.
+
+### Espacio y avisos
+
+Los archivos de trabajo de cada run (tomas, fuentes, capas animadas, audios intermedios) se borran solos pasados 7 días (configurable); la caché de clips se limita a 5 GB. Los videos finales, miniaturas y guiones se conservan. Al terminar o fallar un run aparece una notificación de Windows.
 
 ---
 
 ## 5. Uso diario
 
+- **Aprendizaje:** además del estilo de gancho, mide qué música, duración, cantidad de animaciones y motor de voz rinden mejor, y se lo indica al guionista cuando hay datos suficientes.
+- **Si un run falla o lo cancelas:** pulsa **Reintentar**. Retoma desde el paso que falló y reutiliza el guion, las voces y las tomas que ya estaban listos.
 - **Manual:** en *En vivo*, pulsa **Iniciar run**. Verás cada paso, la actividad, el guion, las tomas a medida que se preparan y los videos terminados. Si «Publicar al terminar» está apagado, revisa los videos y pulsa **Publicar**.
 - **Automático:** en *Configuración → Ejecución diaria*, activa la tarea programada (usa el Programador de tareas de Windows y `run_day.ps1`). Publica solo si *Publicar automáticamente* está activo. Los runs automáticos aparecen en *Historial* y se pueden seguir en vivo si la interfaz está abierta.
 - **Línea de comandos:**
@@ -156,12 +189,18 @@ Agente de Clips/
 │   ├── visuals.py        Pixabay / Pexels / fal.ai (encadenado por fotograma)
 │   ├── render.py         Montaje, subtítulos, mezcla de audio
 │   ├── motion.py         Puente con Remotion (capas animadas)
+│   ├── music.py          Música de fondo generada / Lyria
+│   ├── sfx.py            Efectos de sonido sintetizados
+│   ├── review.py         Revisión de calidad con IA (imagen + audio)
+│   ├── thumbnail.py      Miniatura de YouTube (Remotion)
+│   ├── cleanup.py        Limpieza automática de espacio
+│   ├── notify.py         Notificaciones de Windows
 │   ├── learning.py       Historial y aprendizaje de ganchos
 │   ├── metrics.py        Recolección de métricas
-│   └── publish/          youtube.py, tiktok.py, facebook.py
+│   └── publish/          youtube.py, tiktok.py, facebook.py, instagram.py
 ├── motion/               Animaciones Remotion: plantillas (src/templates) y render.mjs
 ├── app/                  Interfaz web (FastAPI + HTML/JS)
-├── assets/music/         Música de fondo (tuya)
+├── assets/music/         Música propia (opcional; por defecto se genera)
 ├── data/                 settings.json, history.json, metrics.jsonl, learning.json, caché
 ├── runs/<fecha-hora>/    Cada run: run.json, events.jsonl, script.json, videos y tomas
 └── _legacy/              Código anterior (referencia; se puede borrar)
@@ -184,5 +223,12 @@ La interfaz solo escucha en `127.0.0.1`, exige un token de sesión en cada llama
 | Video de YouTube queda privado | Proyecto de API sin auditoría (ver sección 6) |
 | «Ya hay un proceso en curso» | Hay un run activo (manual o programado); espera o cancélalo |
 | TikTok «Estado OAuth inválido» | Pasaron más de 15 minutos o se reinició la interfaz; vuelve a pulsar *Conectar TikTok* |
-| «Ningún modelo gratuito de Gemini respondió» | Se agotó la cuota gratuita diaria de todos los modelos; se renueva cada día. Mientras tanto usa Claude u Ollama |
+| YouTube: «Acceso bloqueado» al conectar | La app de Google está en *Prueba* y tu correo no es usuario de prueba: publica la app o agrégalo (sección 4, Conexiones) |
+| YouTube: «Hay que reconectar» cada semana | La app está en modo *Prueba* (vence a los 7 días): publícala |
+| «Gemini no respondió: la cuota gratuita de hoy se agotó» | Se agotó la cuota diaria de todos los modelos gratuitos; se renueva cada día. Mientras tanto usa Claude u Ollama |
+| «Gemini no respondió: los servidores de Google están saturados» | Error 503 temporal de Google (ya se reintentó varias veces). Pulsa **Reintentar** en unos minutos |
+| Facebook: «Session has expired» | Pegaste un token corto. Sigue los pasos de la sección 4 para un token que no vence |
+| Instagram: «sin permiso» o «no tiene una cuenta vinculada» | Cuenta personal, no vinculada a la página o token sin `instagram_content_publish` |
+| La miniatura no se aplicó en YouTube | Verifica el canal con tu teléfono en youtube.com/verify |
+| Un video quedó «no aprobado» por la revisión IA | Lee los problemas en su tarjeta; si está bien, publícalo a mano. La nota mínima se ajusta en *Video y voz* |
 | Ollama no responde / «Iniciar run» deshabilitado con Ollama | Instala Ollama desde ollama.com, ábrelo, ejecuta `ollama pull qwen2.5:7b` y verifica con *Probar Ollama* |

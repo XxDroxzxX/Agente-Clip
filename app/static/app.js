@@ -252,6 +252,8 @@ function onArtifact(ev) {
     case "audio": ensureItem(ev.item).duration = ev.duration; break;
     case "shot": ensureItem(ev.item).shots.push({ path: ev.path, src: ev.kind_src }); break;
     case "thumb": ensureItem(ev.item).thumb = ev.path; break;
+    case "thumbnail": ensureItem(ev.item).thumbnail = ev.path; break;
+    case "review": ensureItem(ev.item).review = ev.data; break;
     case "video": {
       const it = ensureItem(ev.item);
       Object.assign(it, { video: ev.path, duration: ev.duration, size: ev.size_mb, title: ev.title || it.title });
@@ -412,7 +414,17 @@ function renderProduction() {
   }
   const info = view.querySelector(".item-info");
   const shotsHtml = it.shots.map((s) => `<img class="${s.src === "color" ? "src-color" : ""}" title="${s.src === "color" ? "Fondo de respaldo (sin material)" : s.src === "image" ? "Foto con movimiento" : "Clip de video"}" src="${media(live.runId, s.path)}" loading="lazy" alt="">`).join("");
-  const sig = `${it.title}|${it.duration}|${it.size}|${it.shots.length}|${it.video}`;
+  const rv = it.review;
+  const reviewHtml = rv ? `<div class="review ${rv.ok ? "ok" : "bad"}">
+      <div class="review-head"><b>Revisión con IA: ${rv.score}/10 ${rv.ok ? "· aprobado" : "· no aprobado"}</b>
+        <span class="muted small">${rv.audio ? "imagen y audio" : "solo imagen"}</span></div>
+      <div class="small">${esc(rv.summary || "")}</div>
+      ${rv.issues?.length ? `<ul class="small">${rv.issues.map((i) => `<li><span class="sev ${esc(i.severity)}">${esc(i.severity)}</span> <b>${esc(i.at)}</b> ${esc(i.problem)}</li>`).join("")}</ul>` : ""}
+      ${rv.ok ? "" : `<div class="small muted">La publicación automática se salta este video. Si te parece bien, publícalo con el botón «Publicar».</div>`}
+    </div>` : "";
+  const thumbHtml = it.thumbnail ? `<div class="muted small" style="margin:4px 0 6px">Miniatura para YouTube:</div>
+      <a href="${media(live.runId, it.thumbnail)}" target="_blank" rel="noopener"><img class="yt-thumb" src="${media(live.runId, it.thumbnail)}" alt="Miniatura"></a>` : "";
+  const sig = `${it.title}|${it.duration}|${it.size}|${it.shots.length}|${it.video}|${rv ? rv.score : ""}|${it.thumbnail || ""}`;
   if (info.dataset.sig !== sig) {
     info.dataset.sig = sig;
     info.innerHTML = `<h3>${esc(it.title || itemLabel(key))}</h3>
@@ -425,6 +437,7 @@ function renderProduction() {
       ${it.video ? `<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
         <button class="btn sm" data-act="full">Ver en grande</button>
         <a class="btn sm" href="${media(live.runId, it.video)}" download="${esc(key)}.mp4">Descargar MP4</a></div>` : ""}
+      ${reviewHtml}${thumbHtml}
       <div class="muted small" style="margin-bottom:8px">${it.shots.length ? "Tomas preparadas (en orden):" : "Las tomas aparecerán aquí a medida que se preparan."}</div>
       <div class="filmstrip ${it.portrait ? "portrait" : ""}">${shotsHtml}</div>`;
     const full = info.querySelector('[data-act="full"]');
@@ -495,6 +508,9 @@ function renderActions() {
   const hasVideos = Object.values(live.items).some((i) => i.video);
   const canPublish = !busy && live.runId && hasVideos && ["done", "failed", "interrupted", "cancelled"].includes(live.status);
   const published = live.uploads.some((u) => u.platform_id);
+  const canResume = !busy && live.runId && ["failed", "cancelled", "interrupted"].includes(live.status)
+    && live.options?.mode !== "metrics";
+  $("#btnResume").classList.toggle("hidden", !canResume);
   const btnPub = $("#btnPublish");
   btnPub.classList.toggle("hidden", !canPublish);
   btnPub.lastChild.textContent = published ? "Publicar pendientes" : "Publicar";
@@ -518,6 +534,16 @@ $("#btnCancel").onclick = async () => {
   catch (e) { toast(e.message, "err"); }
 };
 $("#btnPublish").onclick = () => publishRun(live.runId);
+$("#btnResume").onclick = async () => {
+  const id = live.runId;
+  try {
+    await api(`/api/runs/${encodeURIComponent(id)}/resume`, { method: "POST" });
+    toast("Reintentando desde el paso que falló", "ok");
+    app.active = { run_id: id };
+    await attach(id, true);
+    refreshState();
+  } catch (e) { toast(e.message, "err"); }
+};
 $("#btnBackToActive").onclick = () => app.active && attach(app.active.run_id);
 
 async function publishRun(runId) {
@@ -649,6 +675,7 @@ async function loadSettings() {
     cfg.redirect = d.redirect_uri;
     cfg.musicFiles = d.music_files;
     cfg.musicDir = d.music_dir;
+    cfg.geminiVoices = d.gemini_voices || ["Puck"];
     cfg.motion = d.motion || { ok: false, msg: "" };
     renderSettings();
     if (!cfg.voices.length) api("/api/voices").then((v) => { cfg.voices = v; renderVoiceSelect(); }).catch(() => {});
@@ -739,17 +766,32 @@ function renderSettings() {
       ${field("video.long_minutes", "Duración del video largo (min)", "number", { min: 1, max: 15 })}
       ${field("video.shorts_count", "Shorts por run", "number", { min: 0, max: 5 })}
       ${field("video.quality", "Calidad", "select", { options: [["1080p", "1080p (mejor)"], ["720p", "720p (más rápido)"]] })}
-      <div class="field"><label for="f-voice-name">Voz</label><select id="f-voice-name" data-path="voice.name"><option>${esc(d.voice.name)}</option></select></div>
-      ${field("voice.rate", "Velocidad de la voz", "select", { options: [["-10%", "Lenta"], ["+0%", "Normal"], ["+6%", "Ágil"], ["+12%", "Rápida"], ["+20%", "Muy rápida"]] })}
+      ${field("voice.engine", "Motor de voz", "select", { options: [["edge", "Microsoft Edge (gratis, sincronía exacta)"], ["gemini", "Gemini TTS (gratis con tu clave, más expresiva)"]], help: d.voice.engine === "gemini" ? "Si Gemini falla o se agota la cuota, ese video se narra con la voz de Edge." : "" })}
+      ${d.voice.engine === "gemini" ? `
+      ${field("voice.gemini_voice", "Voz de Gemini", "select", { options: cfg.geminiVoices.map((v) => [v, v]) })}
+      ${field("voice.gemini_style", "Estilo de lectura", "text", { help: "Cómo debe sonar, en tus palabras. Ej.: «cercano y con energía, acento latino neutro, ritmo ágil»." })}` : ""}
+      <div class="field"><label for="f-voice-name">Voz de Edge${d.voice.engine === "gemini" ? " (respaldo)" : ""}</label><select id="f-voice-name" data-path="voice.name"><option>${esc(d.voice.name)}</option></select></div>
+      ${field("voice.rate", "Velocidad (Edge)", "select", { options: [["-10%", "Lenta"], ["+0%", "Normal"], ["+6%", "Ágil"], ["+12%", "Rápida"], ["+20%", "Muy rápida"]] })}
     </div>
     <div style="margin-top:12px">
       ${toggle("video.long_enabled", "Crear video largo", "Si lo desactivas, cada run produce solo Shorts.")}
       ${toggle("video.subtitles", "Subtítulos animados", "Palabra por palabra, quemados en el video.")}
-      ${toggle("video.music", "Música de fondo", `Baja de volumen automáticamente cuando habla la voz. Carpeta: <code>${esc(cfg.musicDir)}</code> — ${cfg.musicFiles.length ? `${cfg.musicFiles.length} archivo(s)` : "<b>vacía</b>, agrega .mp3 libres de derechos"}.`)}
+      ${toggle("video.music", "Música de fondo", "Se crea para cada video según su estado de ánimo (lo elige la IA del guion) y baja de volumen cuando habla la voz.")}
     </div>
-    ${d.video.music ? `<div class="form-grid" style="margin-top:6px">${field("video.music_volume", "Volumen de la música (0–1)", "number", { min: 0, max: 1, step: 0.01 })}</div>` : ""}
+    ${d.video.music ? `<div class="form-grid" style="margin-top:6px">
+      ${field("video.music_source", "Origen de la música", "select", { options: [["generada", "Generada automáticamente (gratis, sin derechos de autor)"], ["lyria", "Lyria, IA de Google (de pago, ~US$0.04–0.08 por video)"], ["carpeta", "Mis archivos de assets/music"]], help: d.video.music_source === "carpeta" ? `Carpeta: <code>${esc(cfg.musicDir)}</code> — ${cfg.musicFiles.length ? `${cfg.musicFiles.length} archivo(s)` : "vacía: se usará la música generada"}.` : d.video.music_source === "lyria" ? "Usa tu Gemini API key; requiere activar la facturación en Google AI Studio. Si falla, se usa la generada." : "Compone acordes, bajo, arpegios y batería con la duración exacta del video." })}
+      ${field("video.music_volume", "Volumen de la música (0–1)", "number", { min: 0, max: 1, step: 0.01 })}
+    </div>` : ""}
     ${toggle("video.animations", "Animaciones (Remotion)", `Gráficos animados sobre algunas escenas: gancho en texto grande, listas, cifras, frases clave y cierre. La IA decide dónde van. ${cfg.motion.ok ? '<span style="color:var(--ok)">✓ Remotion listo.</span>' : `<span class="err-text">${esc(cfg.motion.msg)}</span>`}`)}
     ${d.video.animations ? `<div class="form-grid" style="margin-top:6px">${field("video.anim_color", "Color de resaltado", "color", { help: "Por defecto, el mismo amarillo de los subtítulos." })}</div>` : ""}
+    ${toggle("video.sfx", "Efectos de sonido", "Un «whoosh» cuando entra cada animación, un golpe en el gancho y, en Shorts, un barrido suave en cada cambio de escena.")}
+    ${toggle("video.transitions", "Acercamiento al cambiar de escena", "La toma entra un poco acercada y se asienta en 0,3 s: da ritmo sin alargar el video.")}
+    ${toggle("video.thumbnail", "Miniatura automática (YouTube)", "Para el video largo: la IA elige el mejor cuadro y Remotion le pone un texto llamativo. YouTube exige verificar el canal con tu teléfono para usar miniaturas personalizadas.")}
+    <div class="form-grid" style="margin-top:6px">
+      ${field("video.review", "Revisión de calidad con IA", "select", { options: [["auto", "Automática (Gemini gratis: imagen y audio; si no, Claude: imagen)"], ["gemini", "Solo Gemini (gratis)"], ["claude", "Solo Claude (de pago)"], ["off", "Desactivada"]], help: "Al terminar cada video, la IA mira cuadros y escucha el audio: clips sin relación, textos cortados, voz tapada por la música…" })}
+      ${field("video.review_min_score", "Nota mínima para aprobar (1–10)", "number", { min: 1, max: 10 })}
+    </div>
+    ${toggle("video.review_block", "No publicar automáticamente videos reprobados", "Los puedes revisar y publicar a mano igual.")}
     <h2 style="margin:22px 0 12px">Material visual</h2>
     ${radioCards("video.visual_provider", [
       ["pexels", "Clips reales de stock (Pixabay / Pexels)", "Gratis. Videos de stock elegidos escena por escena según el guion. Usa las claves que tengas guardadas."],
@@ -788,6 +830,9 @@ function renderSettings() {
       ${toggle("publish.facebook", "Facebook", "Video largo como video de página y Shorts como Reels.")}
       ${d.publish.facebook ? `<div class="form-grid">${field("publish.facebook_graph_version", "Versión de Graph API", "text", { help: "Ej. v24.0. Actualízala si Meta la deja obsoleta." })}</div>` : ""}
     </div>
+    <div class="platform-block">
+      ${toggle("publish.instagram", "Instagram Reels", "Solo los Shorts. Usa el mismo token de página de Facebook; tu Instagram debe ser profesional y estar vinculado a la página.")}
+    </div>
     <div class="form-grid" style="margin-top:16px">
       ${field("metrics.min_age_hours", "Horas mínimas antes de medir un video", "number", { min: 6, max: 720 })}
       ${field("metrics.exploration", "Exploración del aprendizaje (0–1)", "number", { min: 0, max: 1, step: 0.05, help: "Probabilidad de probar un gancho distinto al mejor." })}
@@ -810,6 +855,18 @@ function renderSettings() {
     <div class="card-head"><h2>Ejecución diaria</h2></div>
     <p class="card-desc">Crea una tarea en el Programador de tareas de Windows que ejecuta el run cada día (el equipo debe estar encendido). Publica solo si «Publicar automáticamente» está activo.</p>
     <div id="scheduleBox" class="muted">Cargando…</div>
+  </div>
+
+  <div class="card" id="s-storage">
+    <div class="card-head"><h2>Espacio y avisos</h2></div>
+    <p class="card-desc">Cada run guarda tomas y audios intermedios que ocupan mucho. Se borran solos pasados unos días; los videos finales, miniaturas y guiones se conservan.</p>
+    <div id="storageBox" class="muted small">Calculando…</div>
+    <div class="form-grid" style="margin-top:12px">
+      ${field("storage.keep_work_days", "Borrar archivos de trabajo tras (días)", "number", { min: 1, max: 365 })}
+      ${field("storage.cache_max_gb", "Tope de la caché de clips (GB)", "number", { min: 1, max: 100 })}
+      ${field("storage.delete_videos_days", "Borrar videos finales tras (días)", "number", { min: 0, max: 3650, help: "0 = nunca." })}
+    </div>
+    ${toggle("general.notify", "Aviso de Windows al terminar", "Una notificación cuando un run termina o falla (útil con la ejecución diaria).")}
   </div>`;
 
   renderSecrets();
@@ -899,9 +956,9 @@ function renderSecrets() {
     const el = $(`[data-secret="${name}"]`);
     if (!el.value.trim()) { toast("Escribe un valor primero", "warn"); return; }
     try {
-      await api(`/api/secrets/${name}`, { method: "PUT", body: { value: el.value } });
+      const res = await api(`/api/secrets/${name}`, { method: "PUT", body: { value: el.value } });
       cfg.secrets[name] = true;
-      toast(`${cfg.meta[name].label} guardada`, "ok");
+      toast(res?.note || `${cfg.meta[name].label} guardada`, res?.note?.includes("Atención") ? "err" : "ok");
       renderSecrets();
       refreshState();
       if (TESTABLE[name]) $(`[data-test="${name}"]`)?.click();
@@ -931,11 +988,15 @@ const GUIDES = {
   youtube: `<ol>
     <li>Entra a <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> y crea un proyecto.</li>
     <li>En <i>APIs y servicios → Biblioteca</i>, habilita <b>YouTube Data API v3</b>.</li>
-    <li>En <i>Pantalla de consentimiento de OAuth</i>, elige «Externo» y agrega tu correo como <b>usuario de prueba</b>.</li>
-    <li>En <i>Credenciales → Crear credenciales → ID de cliente de OAuth</i>, tipo <b>App de escritorio</b>.</li>
-    <li>Descarga el JSON, ábrelo con el Bloc de notas y pega todo su contenido en «YouTube OAuth client (JSON)».</li>
+    <li>En <i>Google Auth Platform</i> (antes «Pantalla de consentimiento de OAuth») configura la app como <b>Externa</b>.</li>
+    <li>En <i>Google Auth Platform → Clientes → Crear cliente</i>, tipo <b>App de escritorio</b>. Descarga el JSON, ábrelo con el Bloc de notas y pega todo su contenido en «YouTube OAuth client (JSON)».</li>
+    <li><b>Para evitar «Acceso bloqueado»</b>, en <i>Google Auth Platform → Público</i> elige una opción:
+      <ul>
+        <li><b>Recomendado: «Publicar app»</b> (estado <i>En producción</i>). No necesitas la verificación de Google para usarla con tu propia cuenta. Al conectar verás «Google no verificó esta app»: pulsa <i>Configuración avanzada → Ir a … (no seguro)</i>. Es seguro porque la app es tuya. La autorización no vence.</li>
+        <li>O deja la app en <i>Prueba</i> y agrega tu correo en <b>Usuarios de prueba</b>. Funciona, pero Google <b>vence la autorización cada 7 días</b> y tendrás que reconectar.</li>
+      </ul></li>
     <li>Vuelve aquí y pulsa <b>Conectar YouTube</b>.</li></ol>
-    <p>En ese mismo proyecto, <i>Crear credenciales → Clave de API</i> te da la «YouTube Data API key» para investigar tendencias.</p>`,
+    <p>En ese mismo proyecto, <i>Credenciales → Crear credenciales → Clave de API</i> te da la «YouTube Data API key» para investigar tendencias. Aparte, mientras Google no audite tu proyecto, los videos se suben como <b>privados</b>; la auditoría se solicita en el formulario de YouTube API Services.</p>`,
   tiktok: () => `<ol>
     <li>Entra a <a href="https://developers.tiktok.com/" target="_blank" rel="noopener">developers.tiktok.com</a> → <i>Manage apps</i> → crea una app.</li>
     <li>Agrega los productos <b>Login Kit</b> y <b>Content Posting API</b>.</li>
@@ -945,11 +1006,12 @@ const GUIDES = {
     <p>Mientras TikTok no audite tu app, los videos solo se publican como «Solo yo».</p>`,
   facebook: `<ol>
     <li>Entra a <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">Meta for Developers</a> y crea una app de tipo <b>Empresa</b>.</li>
-    <li>Abre el <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Explorador de la Graph API</a>, elige tu app y agrega los permisos <code>pages_show_list</code>, <code>pages_manage_posts</code>, <code>pages_read_engagement</code> y <code>publish_video</code>.</li>
-    <li>Pulsa <i>Generate Access Token</i>, autoriza tu página y luego en «Usuario o página» elige <b>tu página</b> para obtener el token de página.</li>
-    <li>Para que no caduque en una hora, extiéndelo en el <a href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noopener">Depurador de tokens</a> (<i>Extend Access Token</i>).</li>
-    <li>Pega el token en «Facebook Page access token».</li></ol>
-    <p>Facebook no usa una ventana de autorización como YouTube o TikTok: basta con guardar el token.</p>`,
+    <li>Abre el <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener">Explorador de la Graph API</a>, elige tu app y agrega los permisos <code>pages_show_list</code>, <code>pages_manage_posts</code>, <code>pages_read_engagement</code>, <code>publish_video</code> y, para Instagram, <code>instagram_basic</code> e <code>instagram_content_publish</code>.</li>
+    <li>Pulsa <i>Generate Access Token</i> y autoriza tu página (deja «Usuario» seleccionado: es un token de <b>usuario</b>).</li>
+    <li><b>Importante para que no venza:</b> copia ese token, ábrelo en el <a href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noopener">Depurador de tokens</a> y pulsa <i>Extend Access Token</i>. Copia el token largo que aparece abajo.</li>
+    <li>Pega ese token largo en «Facebook Page access token». La app obtiene sola el token de tu página, que <b>no vence</b>.</li></ol>
+    <p>Si pegas un token de página corto, funciona solo unas horas: por eso al día siguiente aparece «Session has expired».</p>
+    <p><b>Instagram:</b> tu cuenta debe ser profesional (empresa o creador) y estar vinculada a la página (Instagram → Configuración → Cuenta → Página vinculada).</p>`,
 };
 
 function goSecret(name) {
@@ -968,7 +1030,7 @@ async function loadConnections() {
   if (!box) return;
   try {
     const c = await api("/api/connections");
-    const yt = c.youtube, tt = c.tiktok, fb = c.facebook;
+    const yt = c.youtube, tt = c.tiktok, fb = c.facebook, ig = c.instagram || {};
     const ytPending = yt.pending && yt.pending.state === "waiting";
     const ytReady = cfg.secrets.youtube_client_secret;
     const ttMissing = !cfg.secrets.tiktok_client_key ? "tiktok_client_key" : !cfg.secrets.tiktok_client_secret ? "tiktok_client_secret" : null;
@@ -977,7 +1039,8 @@ async function loadConnections() {
     const ytHint = ytPending ? "Esperando autorización en la pestaña del navegador…"
       : yt.pending?.state === "error" ? `<span class="err-text">${esc(yt.pending.msg)}</span>`
       : !ytReady ? "Paso 1: guarda el «YouTube OAuth client (JSON)» en Credenciales. Paso 2: pulsa Conectar."
-      : yt.connected ? "Se usa para subir videos y leer sus métricas." : "Listo para conectar: se abrirá una pestaña para autorizar tu canal.";
+      : yt.connected && yt.error ? `<span class="err-text">${esc(yt.error)}</span>`
+      : yt.connected ? "Se usa para subir videos y leer sus métricas." : "Listo para conectar: se abrirá una pestaña para autorizar tu canal. Si Google muestra «Acceso bloqueado», abre «¿Cómo lo obtengo?».";
     const ttHint = ttMissing ? "Paso 1: guarda el client key y el client secret de tu app de TikTok en Credenciales. Paso 2: pulsa Conectar."
       : tt.connected ? "Se usa para publicar los Shorts." : "Listo para conectar: se abrirá TikTok para autorizar tu cuenta.";
     const fbHint = !fb.connected ? "Facebook se conecta con un token de página: guárdalo en Credenciales y queda listo."
@@ -987,7 +1050,7 @@ async function loadConnections() {
     box.innerHTML = `
       <div class="conn-row">
         <span class="platform youtube">YouTube</span>
-        <div class="cr-text"><b>${status(yt)}</b><span>${ytHint}</span>${howTo("youtube")}</div>
+        <div class="cr-text"><b>${yt.connected && yt.error ? "Hay que reconectar" : status(yt)}</b><span>${ytHint}</span>${howTo("youtube")}</div>
         ${yt.connected ? `<button class="btn sm ghost" data-disc="youtube">Desconectar</button>` : ""}
         ${ytReady
           ? `<button class="btn sm ${yt.connected ? "" : "primary"}" id="btnConnYT" ${ytPending ? "disabled" : ""}>${yt.connected ? "Reconectar" : "Conectar YouTube"}</button>`
@@ -1005,7 +1068,12 @@ async function loadConnections() {
         <span class="platform facebook">Facebook</span>
         <div class="cr-text"><b>${fb.connected ? (fb.error ? "Token con problemas" : status(fb)) : "No conectado"}</b><span>${fbHint}</span>${howTo("facebook")}</div>
         <button class="btn sm ${fb.connected && !fb.error ? "" : "secondary"}" data-goto="facebook_page_token">${fb.connected ? "Cambiar token" : "Agregar token"}</button>
-      </div>`;
+      </div>
+      ${cfg.draft.publish.instagram ? `<div class="conn-row">
+        <span class="platform instagram">Instagram</span>
+        <div class="cr-text"><b>${ig.connected ? `Vinculado: ${esc(ig.name)}` : "No vinculado"}</b><span>${ig.error ? `<span class="err-text">${esc(ig.error)}</span>` : ig.connected ? "Se usa para publicar los Shorts como Reels." : "Usa el token de Facebook: guárdalo con los permisos de Instagram."}</span>${howTo("facebook")}</div>
+        <button class="btn sm secondary" data-goto="facebook_page_token">Token de Facebook</button>
+      </div>` : ""}`;
     $$("#connBox [data-goto]").forEach((b) => (b.onclick = () => goSecret(b.dataset.goto)));
     const bYT = $("#btnConnYT");
     if (bYT) bYT.onclick = async () => {
@@ -1047,7 +1115,29 @@ async function loadConnections() {
   } catch (e) { box.textContent = e.message; }
 }
 
+async function loadStorage() {
+  const box = $("#storageBox");
+  if (!box) return;
+  try {
+    const u = await api("/api/storage");
+    box.innerHTML = `<div class="facts" style="margin:0">
+        <span>Runs <b>${u.runs}</b></span><span>Archivos de trabajo <b>${u.work_gb} GB</b></span>
+        <span>Videos finales <b>${u.videos_gb} GB</b></span><span>Caché de clips <b>${u.cache_gb} GB</b></span></div>
+      <button class="btn sm" id="btnCleanNow" style="margin-top:8px">Liberar espacio ahora</button>
+      <span class="help">Borra los archivos de trabajo de todos los runs terminados y la caché. No toca los videos finales.</span>`;
+    $("#btnCleanNow").onclick = async () => {
+      if (!confirm("¿Borrar los archivos de trabajo de todos los runs terminados y la caché de clips? Los videos finales se conservan, pero «Reintentar» tendrá que regenerar voces y tomas.")) return;
+      try {
+        const r = await api("/api/storage/cleanup", { method: "POST" });
+        toast(`Se liberaron ${r.freed_gb} GB`, "ok");
+        loadStorage();
+      } catch (e) { toast(e.message, "err"); }
+    };
+  } catch (e) { box.textContent = e.message; }
+}
+
 async function loadSchedule() {
+  loadStorage();
   const box = $("#scheduleBox");
   if (!box) return;
   try {

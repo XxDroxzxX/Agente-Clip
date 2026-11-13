@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundle } from "@remotion/bundler";
-import { renderMedia, selectComposition } from "@remotion/renderer";
+import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const emit = (o) => process.stdout.write(JSON.stringify(o) + "\n");
@@ -40,9 +40,14 @@ const concurrency = Math.max(1, Math.min(8, Math.floor(os.cpus().length / 2)));
 try {
   const serveUrl = await getBundle();
   for (let i = 0; i < jobs.length; i++) {
-    const { out, props } = jobs[i];
+    const { out, props, composition: compId = "Overlay", still = false } = jobs[i];
     try {
-      const composition = await selectComposition({ serveUrl, id: "Overlay", inputProps: props });
+      const composition = await selectComposition({ serveUrl, id: compId, inputProps: props });
+      if (still) {
+        await renderStill({ composition, serveUrl, inputProps: props, output: out, imageFormat: "jpeg", jpegQuality: 92 });
+        emit({ type: "done", job: i, out });
+        continue;
+      }
       await renderMedia({
         composition,
         serveUrl,

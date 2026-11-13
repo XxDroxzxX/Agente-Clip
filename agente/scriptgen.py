@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from . import settings as S
 from .events import Run
-from .learning import HOOK_STYLES, top_own_titles
+from .learning import HOOK_STYLES, insights, top_own_titles
 
 WORDS_PER_MINUTE = 150  # narración en español a ritmo dinámico
 
@@ -33,11 +33,21 @@ class Scene(BaseModel):
     animation: Optional[Animation] = Field(default=None, description="Gráfico animado sobre la toma (opcional). null si la escena no lo necesita.")
 
 
+class MusicBrief(BaseModel):
+    mood: Literal["energetico", "alegre", "inspirador", "tranquilo", "misterioso", "emotivo", "tecnologico"] = Field(
+        description="Estado de ánimo de la música de fondo que mejor acompaña el tono de este video.")
+    prompt: str = Field(description="EN INGLÉS, 1 frase para un generador de música IA: género, instrumentos, energía y tempo "
+                                    "(ej. 'upbeat lo-fi hip hop with warm piano and soft drums, 85 bpm').")
+
+
 class VideoPlan(BaseModel):
     title: str = Field(description="Título atractivo, máximo 90 caracteres.")
     description: str = Field(description="Descripción para la publicación, 2-4 frases.")
     hashtags: list[str] = Field(description="5 a 8 hashtags relevantes, con #.")
     scenes: list[Scene]
+    thumbnail_text: str = Field(default="", description="Texto para la miniatura: 2 a 5 palabras impactantes, "
+                                                        "distintas del título (ej. 'ADIÓS AL HUEVO').")
+    music: Optional[MusicBrief] = Field(default=None, description="Música de fondo acorde al video.")
 
 
 class ScriptPackage(BaseModel):
@@ -45,6 +55,9 @@ class ScriptPackage(BaseModel):
     angle: str = Field(description="Por qué este enfoque debería funcionar, en una frase.")
     long_video: VideoPlan
     shorts: list[VideoPlan]
+    broll_queries: list[str] = Field(default_factory=list, description=(
+        "3 a 5 búsquedas EN INGLÉS de video de stock genéricas que SIEMPRE encajan con el nicho y lo respetan "
+        "(ej. cocina vegana: 'chopping vegetables', 'plant based bowl'). Se usan cuando no hay clip para una escena."))
 
 
 SYSTEM = """Eres un guionista experto en contenido de video corto y largo para YouTube, TikTok y Facebook.
@@ -53,7 +66,8 @@ Reglas:
 - La narración es SOLO lo que se dice en voz alta: sin encabezados, sin "Escena 1", sin emojis, sin indicaciones de cámara, sin markdown.
 - La primera escena debe enganchar en los primeros 2 segundos.
 - Cada escena dura entre 5 y 12 segundos de narración (≈12-30 palabras).
-- Los visual_query describen cosas que existen en bancos de video (personas, objetos, lugares, acciones), en inglés.
+- Los visual_query describen cosas que existen en bancos de video (personas, objetos, lugares, acciones), en inglés,
+  y nunca contradicen el nicho (p. ej. en cocina vegana: nada de carne, pescado, huevos ni lácteos animales).
 - El contenido debe ser original: inspírate en las tendencias, nunca copies títulos ni guiones.
 - No inventes datos falsos; si das cifras, que sean conocidas y verificables."""
 
@@ -72,6 +86,11 @@ def build_prompt(cfg: dict, research: dict, hook_style: str) -> str:
         lines.append("Nuestros títulos que mejor han funcionado (aprende del estilo, no repitas el tema):")
         lines += [f"- {t}" for t in own]
         lines.append("")
+    learned = insights()
+    if learned:
+        lines.append("Lo que han mostrado las métricas de nuestras publicaciones (tenlo en cuenta, sin volverlo una regla rígida):")
+        lines += [f"- {x}" for x in learned]
+        lines.append("")
     lines.append(f"Estilo de gancho obligatorio para hoy: {hook_style} — {HOOK_STYLES[hook_style]}")
     lines.append("")
     if v["long_enabled"]:
@@ -84,6 +103,11 @@ def build_prompt(cfg: dict, research: dict, hook_style: str) -> str:
     lines.append(f"SHORTS (vertical): exactamente {n}. Cada uno es independiente, de 30 a 50 segundos (≈80-120 palabras), "
                  "con un gancho propio, una sola idea potente y un cierre que invite a comentar o seguir.")
     lines.append("")
+    lines.append("MINIATURA: en cada video, `thumbnail_text` con 2-5 palabras que despierten curiosidad (no repitas el título).")
+    lines.append("RESPALDO VISUAL: en `broll_queries` 3-5 búsquedas genéricas de stock en inglés que siempre encajen con el nicho.")
+    if v.get("music", True):
+        lines.append("MÚSICA: en cada video indica `music` con el estado de ánimo que acompañe su tono "
+                     "(no siempre el mismo: varía según el tema y el gancho).")
     if v.get("animations", True):
         lines.append("ANIMACIONES: agrega `animation` en 1 de cada 3 o 4 escenas, donde refuerce el mensaje: "
                      "la primera escena de cada video (titulo con el gancho), enumeraciones (lista), cifras reales (dato), "

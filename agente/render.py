@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Callable
 
 from . import ffmpeg
-from .paths import MUSIC_DIR
 from .tts import Word
 from .visuals import Shot
 
@@ -33,6 +32,11 @@ def normalize_shot(shot: Shot, W: int, H: int, out: Path) -> None:
     d = f"{shot.duration:.3f}"
     enc = ["-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-pix_fmt", "yuv420p", "-r", FPS]
     fit = f"scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,fps={FPS}"
+    if shot.punch and shot.kind != "image":
+        # «punch-in»: entra un poco acercada y se asienta en 0,3 s; marca el cambio de escena
+        n = 9
+        fit += (f",zoompan=z='if(lt(on,{n}),{1 + shot.punch:.3f}-{shot.punch:.3f}*on/{n},1)':d=1"
+                f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s={W}x{H}:fps={FPS}")
     if shot.kind == "video" and shot.source:
         args = ["-stream_loop", "-1", "-i", shot.source, "-t", d, "-vf", fit + ",format=yuv420p", *enc, out]
     elif shot.kind == "image" and shot.source:
@@ -142,34 +146,74 @@ def prepare_font(dest_dir: Path) -> str:
     return "Arial"
 
 
-def pick_music() -> Path | None:
-    files = [p for p in MUSIC_DIR.glob("*") if p.suffix.lower() in (".mp3", ".wav", ".m4a", ".ogg")]
-    return random.choice(files) if files else None
-
-
 def assemble(item_dir: Path, shot_files: list[Path], narration: Path, total: float, subs: Path | None,
-             music: Path | None, music_volume: float, out: Path, on_progress: Callable[[float], None]) -> None:
+             music: Path | None, music_volume: float, out: Path, on_progress: Callable[[float], None],
+             sfx: Path | None = None) -> None:
     lst = item_dir / "shots.txt"
     lst.write_text("".join(f"file '{p.relative_to(item_dir).as_posix()}'\n" for p in shot_files), encoding="utf-8")
     silent = item_dir / "silent.mp4"
     ffmpeg.run(["-f", "concat", "-safe", "0", "-i", lst.name, "-c", "copy", silent.name], cwd=item_dir)
 
-    args = ["-i", silent.name, "-i", narration.name]
+    audio = _mix_audio(item_dir, narration, music, music_volume, sfx)
+    gain = _gain_db(audio)
     vf = "[0:v]tpad=stop_mode=clone:stop_duration=3"
     if subs is not None:
         vf += f",subtitles={subs.name}:fontsdir=fonts"
     vf += "[v]"
+
+    def encode(af: str):
+        ffmpeg.run(["-i", silent.name, "-i", audio.name, "-filter_complex", f"{vf};{af}",
+                    "-map", "[v]", "-map", "[a]", "-t", f"{total:.3f}",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", "-r", FPS,
+                    "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out.name],
+                   cwd=item_dir, duration=total, on_progress=on_progress)
+
+    try:
+        # ganancia fija hacia -14 LUFS + limitador de picos (~-1.5 dBFS). A diferencia de loudnorm,
+        # no puede producir NaN/Inf con audios muy cortos o casi en silencio.
+        encode(f"[1:a]aresample=48000,volume={gain:.2f}dB,"
+               "alimiter=limit=0.84:attack=5:release=50:level=0,aresample=48000[a]")
+    except ffmpeg.FFmpegError as e:
+        if "NaN" not in str(e) and "Inf" not in str(e):
+            raise
+        encode("[1:a]aresample=48000[a]")  # último recurso: sin procesar el audio
+    silent.unlink(missing_ok=True)
+    if audio != narration:
+        audio.unlink(missing_ok=True)
+
+
+TARGET_LUFS = -14.0  # estándar de YouTube / TikTok
+
+
+def _mix_audio(item_dir: Path, narration: Path, music: Path | None, music_volume: float,
+               sfx: Path | None = None) -> Path:
+    """Voz + música con ducking (la música baja cuando habla la voz) + efectos, sin normalizar."""
+    if music is None and sfx is None:
+        return narration
+    mix = item_dir / "audio_mix.wav"
+    args = ["-i", narration.name]
+    graph, mix_in = [], ["[v]"]
     if music is not None:
         args += ["-stream_loop", "-1", "-i", str(music)]
-        af = (f"[2:a]volume={music_volume:.3f},aresample=48000[m];"
-              f"[1:a]aresample=48000,asplit=2[n1][n2];"
-              f"[m][n1]sidechaincompress=threshold=0.04:ratio=6:attack=15:release=350[duck];"
-              f"[n2][duck]amix=inputs=2:duration=first:normalize=0,"
-              f"loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]")
+        graph += [f"[1:a]volume={music_volume:.3f},aresample=48000[m]",
+                  "[0:a]aresample=48000,asplit=2[n1][v]",
+                  "[m][n1]sidechaincompress=threshold=0.04:ratio=6:attack=15:release=350[duck]"]
+        mix_in.append("[duck]")
     else:
-        af = "[1:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[a]"
-    args += ["-filter_complex", f"{vf};{af}", "-map", "[v]", "-map", "[a]", "-t", f"{total:.3f}",
-             "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", "-r", FPS,
-             "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out.name]
-    ffmpeg.run(args, cwd=item_dir, duration=total, on_progress=on_progress)
-    silent.unlink(missing_ok=True)
+        graph.append("[0:a]aresample=48000[v]")
+    if sfx is not None:
+        idx = 2 if music is not None else 1
+        args += ["-i", str(sfx)]
+        graph.append(f"[{idx}:a]aresample=48000[fx]")
+        mix_in.append("[fx]")
+    graph.append(f"{''.join(mix_in)}amix=inputs={len(mix_in)}:duration=first:normalize=0[a]")
+    ffmpeg.run([*args, "-filter_complex", ";".join(graph), "-map", "[a]", "-c:a", "pcm_f32le", mix.name], cwd=item_dir)
+    return mix
+
+
+def _gain_db(audio: Path) -> float:
+    """Ganancia para llevar el audio a TARGET_LUFS, acotada; 0 dB si es silencio o no se pudo medir."""
+    lufs = ffmpeg.measure_lufs(audio)
+    if lufs is None or lufs <= -69.0:
+        return 0.0
+    return max(-20.0, min(20.0, TARGET_LUFS - lufs))

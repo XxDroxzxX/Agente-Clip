@@ -242,6 +242,7 @@ h2 { font-size: 14.5px; margin: 0; font-weight: 640; letter-spacing: -.005em; }
 .platform.youtube { background: rgba(255,0,0,.15); color: #ff6b6b; }
 .platform.tiktok { background: rgba(34,211,238,.14); color: var(--accent-2); }
 .platform.facebook { background: rgba(59,130,246,.16); color: #7aa7ff; }
+.platform.instagram { background: rgba(225,48,108,.16); color: #f07aa6; }
 .upload .u-main { flex: 1; min-width: 0; }
 .upload .u-note { font-size: 12px; color: var(--warn); }
 .upload .u-err { font-size: 12px; color: var(--err); }
@@ -330,6 +331,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .howto { margin-top: 6px; font-size: 12.5px; color: var(--text-2); }
 .howto summary { cursor: pointer; color: var(--accent-2); width: fit-content; }
 .howto ol { margin: 8px 0 6px; padding-left: 20px; display: grid; gap: 4px; }
+.howto ul { margin: 4px 0; padding-left: 18px; display: grid; gap: 4px; }
 .howto p { margin: 4px 0 0; color: var(--muted); }
 .secret-row.flash { animation: flash 1.8s ease-out; }
 @keyframes flash { 0%, 30% { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent); } 100% { background: transparent; box-shadow: none; } }
@@ -374,3 +376,14 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-3); 
   .secret-row { grid-template-columns: 1fr; }
   .test-msg { grid-column: 1; }
 }
+
+/* revisión de calidad con IA y miniatura */
+.review { border: 1px solid var(--line, rgba(255,255,255,.12)); border-radius: 10px; padding: 10px 12px; margin: 0 0 14px; }
+.review.ok { border-color: rgba(52,211,153,.45); background: rgba(52,211,153,.06); }
+.review.bad { border-color: rgba(248,113,113,.5); background: rgba(248,113,113,.07); }
+.review-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.review ul { margin: 6px 0 4px; padding-left: 18px; display: grid; gap: 3px; }
+.sev { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 6px; background: rgba(148,163,184,.2); }
+.sev.alta { background: rgba(248,113,113,.25); color: #fca5a5; }
+.sev.media { background: rgba(251,191,36,.22); color: #fcd34d; }
+.yt-thumb { width: 100%; max-width: 360px; border-radius: 8px; display: block; margin-bottom: 14px; }

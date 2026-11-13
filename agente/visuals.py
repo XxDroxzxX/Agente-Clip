@@ -39,6 +39,7 @@ class Shot:
     credit: str = ""
     anim: dict | None = None  # animación Remotion a superponer
     overlay: Path | None = None
+    punch: float = 0.0        # acercamiento rápido al inicio de la toma (0 = no; 0.06 = 6 %)
 
 
 def plan_shots(scenes: list, durations: list[float]) -> list[Shot]:
@@ -299,7 +300,8 @@ def _gather(sources: list, query: str, min_dur: float, k: int, log) -> list[Cand
 
 
 def assign_stock(shots: list[Shot], sources: list, cfg: dict, portrait: bool,
-                 log: Callable[[str, str], None], progress: Callable[[float], None]) -> None:
+                 log: Callable[[str, str], None], progress: Callable[[float], None],
+                 broll: list[str] | tuple = ()) -> None:
     """Busca candidatos por escena, deja que una IA con visión los ordene (si está disponible)
     y asigna a cada toma el mejor clip que no se haya usado antes en el video."""
     from . import vision
@@ -318,11 +320,48 @@ def assign_stock(shots: list[Shot], sources: list, cfg: dict, portrait: bool,
                 "thumbs": [c.thumb() for c in cs]} for i, cs in cands.items() if len(cs) > 1]
         order = vision.rank_scenes(cfg, req, portrait, log)
     progress(0.5)
+    # con visión solo entran los clips que la IA aprobó: lo descartado no se usa de relleno
+    seqs: dict[int, list[Cand]] = {}
+    for i, cs in cands.items():
+        seqs[i] = [cs[j] for j in order[i] if 0 <= j < len(cs)] if i in order else list(cs)
+    lacking = [i for i, g in scenes.items() if i in order and len(seqs.get(i, [])) < len(g)]
+    if lacking and broll:
+        pool: list[Cand] = []
+        seen: set[str] = set()
+        for q in broll[:5]:
+            for c in _gather(sources, q, 4.0, 5, log):
+                if c.key not in seen:
+                    seen.add(c.key)
+                    pool.append(c)
+        pool = pool[:vision.MAX_IMAGES_PER_CALL]
+        picks = vision.rank_pool(cfg, [{"scene": i, "narration": scenes[i][0].text} for i in lacking],
+                                 [c.thumb() for c in pool], portrait, log)
+        added = 0
+        for i in lacking:
+            extra = [pool[j] for j in picks.get(i, []) if 0 <= j < len(pool)]
+            seqs[i] += extra
+            added += len(extra)
+        if added:
+            log(f"{len(lacking)} escenas sin clip adecuado: se completaron con tomas genéricas del nicho.", "info")
+    for i, group in list(scenes.items()):
+        ok = len(seqs.get(i, []))
+        if i not in order or ok >= len(group):
+            continue
+        if ok == 0:  # último recurso: lo mejor que haya, avisando
+            seqs[i] = list(cands.get(i, []))
+            log(f"Escena {i + 1}: ningún clip encaja con «{group[0].query}»; se usa el mejor disponible.", "warn")
+            continue
+        # faltan clips aprobados: las tomas de la escena se funden (mejor menos cortes que algo sin relación)
+        keep, drop = group[:ok], group[ok:]
+        extra = sum(s.duration for s in drop)
+        for s in keep:
+            s.duration += extra / len(keep)
+        for s in drop:
+            shots.remove(s)
+        scenes[i] = keep
     used: set[str] = set()
     for n, (i, group) in enumerate(scenes.items()):
-        cs = cands.get(i, [])
-        ranked = [j for j in order.get(i, []) if 0 <= j < len(cs)]
-        seq = [cs[j] for j in ranked] + [c for j, c in enumerate(cs) if j not in ranked]
+        seq = seqs.get(i, [])
         for sh in group:
             for c in seq:
                 if c.key in used:
@@ -403,7 +442,8 @@ class FalVideo:
 # ── orquestación por item ─────────────────────────────
 
 def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, use_fal: bool,
-                   out_dir: Path, log: Callable[[str, str], None], progress: Callable[[float], None]):
+                   out_dir: Path, log: Callable[[str, str], None], progress: Callable[[float], None],
+                   broll: list[str] | tuple = ()):
     stock = stock_sources(portrait, min_side)
     fal = None
     if use_fal:
@@ -418,7 +458,7 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
             "Agrega la API key de Pixabay o Pexels en Configuración.", "warn")
 
     if stock and not fal:
-        assign_stock(shots, stock, cfg, portrait, log, progress)
+        assign_stock(shots, stock, cfg, portrait, log, progress, broll)
         return shots
 
     prev_clip: Path | None = None
