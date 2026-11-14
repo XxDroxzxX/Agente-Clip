@@ -80,6 +80,14 @@ class FakeAI:
         self.released = True
 
 
+def _fake_ffmpeg(calls):
+    def run(args, cwd=None, **k):
+        calls.append([str(a) for a in args])
+        out = Path(cwd or ".") / str(args[-1])
+        out.write_bytes(b"x")
+    return run
+
+
 class OrchestrationTest(unittest.TestCase):
     def _shots(self, n=5):
         return [visuals.Shot(scene=i, duration=4.0, query=f"q{i}", prompt=f"p{i}") for i in range(n)]
@@ -91,7 +99,7 @@ class OrchestrationTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(visuals, "stock_sources", return_value=[]), \
                 mock.patch.object(visuals, "ai_provider", return_value=fake), \
-                mock.patch.object(visuals.ffmpeg, "extract_frame", side_effect=lambda v, out, **k: out):
+                mock.patch.object(visuals.ffmpeg, "run", side_effect=_fake_ffmpeg(runs := [])):
             visuals.fetch_for_item(shots, True, 1080, cfg, True, Path(tmp), lambda *a: None, lambda p: None)
             # segunda llamada («Reintentar»): reutiliza los archivos ya generados
             again = self._shots()
@@ -101,6 +109,9 @@ class OrchestrationTest(unittest.TestCase):
         self.assertEqual(shots[0].credit, "Generado con IA")
         self.assertTrue(fake.released)
         self.assertEqual(len(fake.calls), 2)
+        # el enlace es el último cuadro exacto en PNG y la toma encadenada pierde su 1.er cuadro (repetido)
+        self.assertTrue(any(a[-1].endswith(".png") and "-update" in a for a in runs))
+        self.assertTrue(any("trim=start_frame=1,setpts=PTS-STARTPTS" in a for a in runs))
 
     def test_long_shot_is_split_in_segments(self):
         fake = FakeAI()

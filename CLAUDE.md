@@ -89,6 +89,10 @@ Objetivo del usuario: video de calidad profesional tipo cine o anime generado **
 - Modelo: Wan 2.2 TI2V-5B GGUF Q5_K_M + UMT5 GGUF Q5_K_M + `wan2.2_vae`, a 832x480 (múltiplos de 32), 24 fps, 4n+1 cuadros.
   Tiempo medido (2026-11-13, RTX 4050 6 GB): ~19 s por paso, ~8 min por toma de 5 s (la primera ~11,5 min por la
   carga), 20 pasos. La continuidad imagen→video funciona; con 16 GB la RAM libre baja a ~1 GB al cargar los modelos.
+  Run de punta a punta (2026-11-14, Short de 36 s, 10 segmentos IA encadenados, comfy_max_shots=0): 63 min, revisión
+  IA 9/10, sin saltos en los empalmes (medido con `scdet`). Ritmo ≈ 1,6 min de GPU por segundo de video → 10 min ≈ 16-17 h.
+  Problema visto: la cadena mantiene el ambiente pero se aleja de la narración (el sujeto casi no aparece). Enlace:
+  último cuadro exacto en PNG (`visuals.last_frame`) y se recorta el 1.er cuadro de cada toma encadenada.
 - Modo mixto (`comfy_max_shots`, por defecto 2): IA en las primeras tomas (el gancho) y stock con visión en el resto
   (`visuals.fetch_for_item`). La cadena de fotogramas solo sigue entre tomas IA consecutivas. Si `comfy_path` está
   configurado y ComfyUI está cerrado, el run lo abre y lo cierra al terminar; si ya estaba abierto, solo pide `/free`.

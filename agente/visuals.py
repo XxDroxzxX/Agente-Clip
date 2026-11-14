@@ -479,6 +479,12 @@ def ai_shot_ids(shots: list[Shot], cfg: dict) -> list[int]:
     return list(range(len(shots) if n <= 0 else min(n, len(shots))))
 
 
+def last_frame(video: Path, out: Path) -> Path:
+    """Último cuadro exacto, sin pérdida (PNG): en una cadena larga el JPEG acumularía artefactos en cada empalme."""
+    ffmpeg.run(["-sseof", "-1", "-i", video, "-update", "1", "-an", out])
+    return out
+
+
 def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
                  log: Callable[[str, str], None]) -> Path:
     """Genera una toma (en uno o más segmentos encadenados) y devuelve el último segmento."""
@@ -489,11 +495,17 @@ def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
         if dest.is_file() and dest.stat().st_size > 0:  # «Reintentar» reutiliza lo ya generado
             log(f"IA: toma {i+1}.{k+1} reutilizada.", "info")
         else:
-            start = None
-            if prev_clip is not None:
-                start = ffmpeg.extract_frame(prev_clip, out_dir / f"frame_{i:03d}_{k}.jpg", last=True)
+            start = last_frame(prev_clip, out_dir / f"frame_{i:03d}_{k}.png") if prev_clip is not None else None
             log(f"IA: generando toma {i+1}.{k+1} {'desde el último fotograma' if start else 'inicial'}", "info")
-            ai.generate(shot.prompt, start, dest, lambda m: log(m, "info"), seconds=shot.duration / parts)
+            raw = dest.with_name(dest.stem + "_raw.mp4")
+            ai.generate(shot.prompt, start, raw, lambda m: log(m, "info"), seconds=shot.duration / parts)
+            if start is not None:
+                # el 1.er cuadro repite el último de la toma anterior: se quita para que el empalme no se congele
+                ffmpeg.run(["-i", raw, "-vf", "trim=start_frame=1,setpts=PTS-STARTPTS", "-an",
+                            "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", dest])
+                raw.unlink(missing_ok=True)
+            else:
+                raw.replace(dest)
         clips.append(dest)
         prev_clip = dest
     if len(clips) == 1:
@@ -502,7 +514,8 @@ def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
         joined = out_dir / f"ai_{i:03d}.mp4"
         lst = out_dir / f"ai_{i:03d}.txt"
         lst.write_text("".join(f"file '{c.name}'\n" for c in clips), encoding="utf-8")
-        ffmpeg.run(["-f", "concat", "-safe", "0", "-i", lst.name, "-c", "copy", joined.name], cwd=out_dir)
+        ffmpeg.run(["-f", "concat", "-safe", "0", "-i", lst.name, "-an", "-c:v", "libx264", "-preset", "veryfast",
+                    "-crf", "16", "-pix_fmt", "yuv420p", joined.name], cwd=out_dir)  # segmentos de distinto origen
         shot.source = joined
     shot.kind, shot.credit = "video", "Generado con IA"
     return prev_clip

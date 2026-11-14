@@ -174,7 +174,9 @@ def step_visuals(run: Run, cfg: dict, items, audio) -> dict:
             visuals.fetch_for_item(shots, portrait, min(W, H), cfg, use_ai, src_dir, log, prog, broll)
             if v.get("transitions", True):
                 for j, sh in enumerate(shots):
-                    if j > 0 and sh.scene != shots[j - 1].scene:
+                    prev = shots[j - 1] if j > 0 else None
+                    chained = prev is not None and sh.credit == prev.credit == "Generado con IA"
+                    if prev is not None and sh.scene != prev.scene and not chained:  # la cadena IA ya fluye sola
                         sh.punch = 0.08 if portrait else 0.05
             if v.get("animations", True):
                 _render_animations(run, key, shots, W, H, v, log, audio[key])

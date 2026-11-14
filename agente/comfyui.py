@@ -185,7 +185,7 @@ class ComfyVideo:
 
     def _upload(self, image: Path) -> str:
         with open(image, "rb") as f:
-            r = requests.post(f"{self.url}/upload/image", files={"image": (image.name, f, "image/jpeg")},
+            r = requests.post(f"{self.url}/upload/image", files={"image": (image.name, f, "image/png" if image.suffix.lower() == ".png" else "image/jpeg")},
                               data={"overwrite": "true", "subfolder": "agente_clips"}, timeout=60)
         r.raise_for_status()
         j = r.json()
