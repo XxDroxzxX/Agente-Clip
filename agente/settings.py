@@ -57,11 +57,22 @@ DEFAULTS: dict[str, Any] = {
         "long_minutes": 3,
         "shorts_count": 2,
         "quality": "1080p",         # 1080p | 720p
-        "visual_provider": "pexels",  # pexels | fal
-        "fal_scope": "shorts",      # shorts | all
+        "visual_provider": "pexels",  # pexels | fal | comfyui
+        "fal_scope": "shorts",      # shorts | all (también vale para ComfyUI)
         "fal_t2v_model": "fal-ai/wan-t2v",
         "fal_i2v_model": "fal-ai/wan-i2v",
         "fal_segment_seconds": 5,
+        "ai_style": "",             # texto que se agrega a cada prompt IA, p. ej. «cinematic, film grain» o «anime style»
+        # ComfyUI local (video IA en la GPU del PC)
+        "comfy_url": "http://127.0.0.1:8188",
+        "comfy_path": "",           # carpeta de ComfyUI portable: si no está abierto, el run lo inicia y lo cierra al final
+        "comfy_workflow": "wan22_ti2v_5b.json",  # en agente/workflows/ o ruta absoluta (formato API)
+        "comfy_resolution": "480p",  # 480p (6-8 GB VRAM) | 544p | 704p (nativa de Wan 2.2 5B, pide más VRAM)
+        "comfy_steps": 20,
+        "comfy_fps": 24,
+        "comfy_segment_seconds": 5,
+        "comfy_max_shots": 2,       # tomas IA por video (las primeras = el gancho); 0 = todas
+        "comfy_timeout_min": 30,
         "subtitles": True,
         "music": True,
         "music_volume": 0.12,

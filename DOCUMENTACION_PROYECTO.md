@@ -15,13 +15,26 @@ Todo se maneja desde una **interfaz web local** (`http://localhost:8585`) con se
 | 1 | Investigación | Busca videos **recientes** del nicho y los puntúa por vistas/día y engagement (normalizados) | YouTube Data API |
 | 2 | Guion | Escribe un plan estructurado: video largo + N Shorts, cada uno dividido en escenas con narración, descripción visual y animaciones | Claude API, Gemini API (gratis) u Ollama local |
 | 3 | Narración | Voz neural por escena, con tiempos por palabra | edge-tts (gratis) |
-| 4 | Material visual | Una toma cada ~5 s: clip de video real por escena (elegido con visión por IA), o video IA encadenado | Pixabay / Pexels (gratis) + Gemini o Claude; o fal.ai (pago) |
+| 4 | Material visual | Una toma cada ~5 s: clip de video real por escena (elegido con visión por IA), o video IA encadenado | Pixabay / Pexels (gratis) + Gemini o Claude; fal.ai (pago) o ComfyUI local en tu GPU (gratis) |
 | 4b | Animaciones | Gráficos animados (gancho, listas, cifras, frases, cierre) como capas transparentes sobre algunas tomas | Remotion (local) |
 | 5 | Montaje | Une tomas, quema subtítulos karaoke, mezcla voz + música con *ducking*, normaliza volumen (-14 LUFS) | ffmpeg (incluido) |
 | 6 | Publicación | YouTube (largo + Shorts), TikTok (Shorts), Facebook (video + Reels) | APIs oficiales |
 | 7 | Métricas | Mide lo publicado en los últimos 30 días y actualiza el aprendizaje | YouTube / Graph API |
 
-**Video IA encadenado (opcional):** con el proveedor fal.ai, cada segmento se genera a partir del **último fotograma** del anterior (*image-to-video*), lo que da continuidad visual. Si un segmento falla, se usan clips de stock como respaldo.
+**Video IA encadenado (opcional):** con fal.ai (nube) o ComfyUI (local), cada segmento se genera a partir del **último fotograma** del anterior (*image-to-video*), lo que da continuidad visual. Si un segmento falla, se usan clips de stock como respaldo.
+
+**Video IA local con ComfyUI (opcional, requiere GPU NVIDIA):** genera las tomas en tu propia tarjeta con **Wan 2.2 TI2V-5B** (licencia Apache 2.0), sin costo por video. Como es lento, por defecto solo las **primeras 2 tomas** de cada Short (el gancho) se generan con IA y el resto usa clips de stock elegidos con visión. Referencia medida en una RTX 4050 Laptop de 6 GB a 480p: **~8 min por toma de 5 s** (la primera del run ~11,5 min, porque carga los modelos); un Short con 2 tomas IA suma ~20 min. Durante la carga la RAM queda casi llena con 16 GB: conviene no tener abiertos programas pesados. Se configura en *Video y voz → Material visual*: tomas con IA por video, resolución, estilo visual (p. ej. `cinematic, film grain` o `anime style`), pasos y carpeta de ComfyUI. Si ComfyUI está cerrado y se indicó su carpeta, el run lo abre solo y lo cierra al terminar (libera la memoria). Cancelar un run detiene también la toma en curso, y **Reintentar** reutiliza las tomas IA ya generadas.
+
+Instalación (una vez, ~20 GB):
+1. Descarga `ComfyUI_windows_portable_nvidia.7z` desde github.com/Comfy-Org/ComfyUI/releases y extráelo (p. ej. en tu carpeta de usuario).
+2. En `ComfyUI\custom_nodes`: `git clone https://github.com/city96/ComfyUI-GGUF` y luego `..\..\python_embeded\python.exe -s -m pip install -r ComfyUI-GGUF\requirements.txt`.
+3. Coloca los modelos:
+   - `models\unet\Wan2.2-TI2V-5B-Q5_K_M.gguf` (huggingface.co/QuantStack/Wan2.2-TI2V-5B-GGUF)
+   - `models\text_encoders\umt5-xxl-encoder-Q5_K_M.gguf` (huggingface.co/city96/umt5-xxl-encoder-gguf)
+   - `models\vae\wan2.2_vae.safetensors` (huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged, carpeta `split_files/vae`)
+4. En la interfaz elige *Video IA local en tu GPU (ComfyUI)* e indica la carpeta de ComfyUI portable.
+
+El workflow está en `agente/workflows/wan22_ti2v_5b.json` (formato API de ComfyUI). Puedes usar otro (por ejemplo, con un LoRA de estilo anime) exportándolo con *Export (API)* y poniendo los marcadores `{{prompt}}`, `{{seed}}`, `{{width}}`, `{{height}}`, `{{frames}}`, `{{fps}}`, `{{steps}}` y `{{start_image}}` (este último en un nodo LoadImage conectado a una entrada opcional).
 
 **Selección inteligente de clips:** por cada escena se buscan varios candidatos y una IA con visión mira sus miniaturas y los ordena según lo que dice la narración (que muestre la acción concreta, calidad, sin marcas de agua). Usa Gemini (gratis) si hay clave, o Claude Haiku. Si no hay ninguna o se agota la cuota, se usa el orden del banco de clips. Se configura en *Video y voz → Selección inteligente de clips*.
 
@@ -37,7 +50,7 @@ Para ver y editar las plantillas en vivo: `cd motion` y `npm run studio`.
 
 - Windows 10/11, Python **3.11 o superior** (probado con 3.14) en el PATH.
 - ~1 GB libre (más el espacio de los videos generados en `runs/`).
-- No requiere GPU. ffmpeg viene incluido en las dependencias (`imageio-ffmpeg`).
+- No requiere GPU (solo el video IA local con ComfyUI usa una NVIDIA de 6 GB o más). ffmpeg viene incluido en las dependencias (`imageio-ffmpeg`).
 - **Node.js LTS** (nodejs.org) para las animaciones. Sin Node el agente funciona igual, pero sin animaciones.
 - Remotion es gratis para personas y empresas de hasta 3 empleados; empresas más grandes necesitan una *Company License* (remotion.dev/license).
 
@@ -186,7 +199,8 @@ Agente de Clips/
 │   ├── gemini.py         Cliente de la API gratuita de Gemini
 │   ├── vision.py         Selección de clips con visión (Gemini / Claude)
 │   ├── tts.py            Narración y tiempos por palabra
-│   ├── visuals.py        Pixabay / Pexels / fal.ai (encadenado por fotograma)
+│   ├── visuals.py        Pixabay / Pexels / video IA (fal.ai o ComfyUI, encadenado por fotograma)
+│   ├── comfyui.py        Cliente de ComfyUI local (workflows en agente/workflows/)
 │   ├── render.py         Montaje, subtítulos, mezcla de audio
 │   ├── motion.py         Puente con Remotion (capas animadas)
 │   ├── music.py          Música de fondo generada / Lyria
@@ -232,3 +246,6 @@ La interfaz solo escucha en `127.0.0.1`, exige un token de sesión en cada llama
 | La miniatura no se aplicó en YouTube | Verifica el canal con tu teléfono en youtube.com/verify |
 | Un video quedó «no aprobado» por la revisión IA | Lee los problemas en su tarjeta; si está bien, publícalo a mano. La nota mínima se ajusta en *Video y voz* |
 | Ollama no responde / «Iniciar run» deshabilitado con Ollama | Instala Ollama desde ollama.com, ábrelo, ejecuta `ollama pull qwen2.5:7b` y verifica con *Probar Ollama* |
+| «ComfyUI no responde» | Abre `run_nvidia_gpu.bat` de ComfyUI o indica su carpeta en *Material visual* para que el run lo inicie solo |
+| «ComfyUI no encuentra el archivo …» | Falta un modelo: colócalo en la carpeta `models\…` que indica el mensaje y reinicia ComfyUI |
+| «La GPU se quedó sin memoria» | Usa resolución IA 480p, menos segundos por segmento o cierra otros programas que usen la GPU |

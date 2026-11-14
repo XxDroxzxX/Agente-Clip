@@ -151,7 +151,7 @@ def step_voice(run: Run, cfg: dict, items) -> dict:
 
 def step_visuals(run: Run, cfg: dict, items, audio) -> dict:
     v = cfg["video"]
-    run.step_start("visuals", "Clips de stock" if v["visual_provider"] == "pexels" else "IA (fal.ai)")
+    run.step_start("visuals", {"fal": "IA (fal.ai)", "comfyui": "IA local (ComfyUI) + stock"}.get(v["visual_provider"], "Clips de stock"))
     all_shots = {}
     n_items = len(items)
     try:
@@ -162,7 +162,7 @@ def step_visuals(run: Run, cfg: dict, items, audio) -> dict:
         for idx, (key, plan, portrait) in enumerate(items):
             W, H = render.RESOLUTIONS[(v["quality"], portrait)]
             shots = visuals.plan_shots(plan.scenes, [s.duration for s in audio[key]])
-            use_fal = v["visual_provider"] == "fal" and (v["fal_scope"] == "all" or portrait)
+            use_ai = v["visual_provider"] in ("fal", "comfyui") and (v["fal_scope"] == "all" or portrait)
             src_dir = run.path(key, "sources", "x").parent
 
             def prog(p, idx=idx):
@@ -171,7 +171,7 @@ def step_visuals(run: Run, cfg: dict, items, audio) -> dict:
             def log(msg, level="info"):
                 run.log(msg, level, "visuals")
 
-            visuals.fetch_for_item(shots, portrait, min(W, H), cfg, use_fal, src_dir, log, prog, broll)
+            visuals.fetch_for_item(shots, portrait, min(W, H), cfg, use_ai, src_dir, log, prog, broll)
             if v.get("transitions", True):
                 for j, sh in enumerate(shots):
                     if j > 0 and sh.scene != shots[j - 1].scene:

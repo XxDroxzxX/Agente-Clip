@@ -157,6 +157,22 @@ def _ollama_up(url: str) -> bool:
     return ok
 
 
+def _comfy_status(v: dict) -> tuple[bool, str]:
+    c = _cache.get("comfy_up")
+    if c and time.time() - c[0] < 15:
+        return c[1]
+    from agente import comfyui
+    ok, msg = comfyui.check(v.get("comfy_url") or "http://127.0.0.1:8188")
+    if ok:
+        msg = f"En ejecución — {msg}"
+    elif (Path(v.get("comfy_path") or ".") / "python_embeded" / "python.exe").is_file():
+        ok, msg = True, "Cerrado; cada run lo abrirá solo"
+    else:
+        msg = "No responde: ábrelo (run_nvidia_gpu.bat) o indica su carpeta en Material visual"
+    _cache["comfy_up"] = (time.time(), (ok, msg))
+    return ok, msg
+
+
 def _readiness(cfg: dict, sec: dict) -> list[dict]:
     r = []
     if cfg["llm"]["provider"] == "claude":
@@ -172,6 +188,9 @@ def _readiness(cfg: dict, sec: dict) -> list[dict]:
                   "critical": True})
     if cfg["video"]["visual_provider"] == "fal":
         r.append({"ok": sec["fal_api_key"], "label": "fal.ai API key", "hint": "Para generar video con IA", "critical": False})
+    elif cfg["video"]["visual_provider"] == "comfyui":
+        ok, msg = _comfy_status(cfg["video"])
+        r.append({"ok": ok, "label": "ComfyUI (video IA local)", "hint": msg, "critical": False})
     r.append({"ok": sec["pixabay_api_key"] or sec["pexels_api_key"], "label": "Clips de stock (Pixabay o Pexels)",
               "hint": "Clips reales por escena (sin clave: fondos de color)", "critical": False})
     r.append({"ok": sec["youtube_api_key"], "label": "YouTube Data API key", "hint": "Investigación de tendencias", "critical": False})
@@ -185,7 +204,7 @@ def _readiness(cfg: dict, sec: dict) -> list[dict]:
     if p.get("instagram"):
         r.append({"ok": sec["facebook_page_token"], "label": "Instagram (token de página)",
                   "hint": "Reels en tu Instagram profesional vinculado a la página", "critical": False})
-    if cfg["video"]["visual_provider"] == "pexels" and cfg["video"].get("smart_clips", "auto") != "off":
+    if cfg["video"]["visual_provider"] in ("pexels", "comfyui") and cfg["video"].get("smart_clips", "auto") != "off":
         from agente import vision
         prov = vision.provider(cfg)
         r.append({"ok": prov is not None, "label": "Selección de clips con visión",
@@ -273,6 +292,13 @@ def cancel_run(run_id: str):
     pid = st.get("pid")
     if pid and pid_alive(pid):
         subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, creationflags=0x08000000)
+        v = S.load()["video"]
+        if v["visual_provider"] == "comfyui":  # un ComfyUI abierto aparte seguiría generando la toma en curso
+            import requests
+            try:
+                requests.post(v["comfy_url"].rstrip("/") + "/interrupt", timeout=2)
+            except Exception:
+                pass
     time.sleep(0.5)
     st = read_json(d / "run.json", {})
     if st.get("status") == "running":
@@ -378,6 +404,7 @@ def storage_cleanup():
 @app.put("/api/settings")
 def put_settings(body: dict = Body(...)):
     _cache.pop("ollama_up", None)
+    _cache.pop("comfy_up", None)
     _cache.pop("fb_page", None)
     return {"settings": S.save(body)}
 

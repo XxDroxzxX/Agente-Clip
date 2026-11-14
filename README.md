@@ -33,7 +33,7 @@ Todo gestionado desde una **interfaz web local reactiva** y controlado por un ej
 flowchart TD
     A[🔍 1. Investigación de Tendencias\nYouTube Data API] --> B[📝 2. Generación de Guion\nClaude / Gemini / Ollama]
     B --> C[🎙️ 3. Narración Neural\nedge-tts con word timestamps]
-    C --> D[👁️ 4. Selección Visual & IA\nPixabay / Pexels + Visión IA o fal.ai]
+    C --> D[👁️ 4. Selección Visual & IA\nPixabay / Pexels + Visión IA, fal.ai o ComfyUI local]
     C --> E[🎨 4b. Gráficos Animados\nRemotion React Templates]
     D --> F[🎬 5. Montaje y Render\nFFmpeg: Subtítulos Karaoke + Ducking + -14 LUFS]
     E --> F
@@ -50,7 +50,7 @@ flowchart TD
 - **Curación Visual con Visión:** Un agente visual inspecciona los fotogramas candidatos de stock y selecciona los que mejor representan la escena narrada. Descarta el material sin relación o que contradice el tema del canal y, si falta, busca tomas genéricas del nicho en lugar de usar relleno.
 - **Revisión de Calidad con IA:** Antes de publicar, Gemini mira cuadros del video final y escucha su audio; los videos reprobados no se publican automáticamente.
 - **Voz con Gemini TTS (opcional):** Voz más expresiva y gratuita, con tiempos por palabra estimados a partir de las pausas del audio.
-- **Continuidad de Video con IA (Opcional):** Integración con **fal.ai** mediante técnicas *Image-to-Video* encadenadas fotograma a fotograma para máxima coherencia visual.
+- **Continuidad de Video con IA (Opcional):** Integración con **fal.ai** (nube) o **ComfyUI + Wan 2.2** (local, en tu GPU NVIDIA, gratis) mediante técnicas *Image-to-Video* encadenadas fotograma a fotograma para máxima coherencia visual.
 
 ### 🎨 Gráficos en Movimiento con Remotion
 Cinco plantillas modulares programadas en React que se superponen como capas transparentes sobre las tomas:
@@ -140,6 +140,7 @@ Desde el panel **Configuración** de la interfaz web, puedes configurar y valida
 | **TikTok Developer App** | Publicación en cuenta de TikTok | Gratuito |
 | **Facebook Graph API** | Publicación en Páginas y Reels | Gratuito |
 | **fal.ai API** | Generación de video con IA (opcional) | Pago por segundo generado |
+| **ComfyUI + Wan 2.2 5B** | Video IA local en la GPU (opcional) | Gratis (Apache 2.0); NVIDIA de 6 GB o más |
 
 ---
 

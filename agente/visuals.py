@@ -3,8 +3,10 @@
 Proveedores:
   - stock:  clips de video reales de Pexels y/o Pixabay (gratis, requieren API key;
             se usan los que tengan clave, en ese orden).
-  - fal:    video generado por IA. Cada toma parte del ÚLTIMO FOTOGRAMA de la
-            anterior (image-to-video), así la secuencia tiene continuidad visual.
+  - fal / comfyui: video generado por IA (fal.ai en la nube o ComfyUI local en la GPU).
+            Cada toma parte del ÚLTIMO FOTOGRAMA de la anterior (image-to-video), así la
+            secuencia tiene continuidad visual. Con ComfyUI se puede limitar la IA a las
+            primeras tomas (el gancho) y usar stock en el resto.
 Respaldo: foto de stock con movimiento (Ken Burns) o fondo de color.
 """
 from __future__ import annotations
@@ -399,10 +401,13 @@ def _download(url: str, dest: Path):
 class FalVideo:
     QUEUE = "https://queue.fal.run"
 
-    def __init__(self, key: str, t2v_model: str, i2v_model: str, portrait: bool):
+    def __init__(self, key: str, cfg: dict, portrait: bool):
+        v = cfg["video"]
         self.h = {"Authorization": f"Key {key}"}
-        self.t2v, self.i2v = t2v_model, i2v_model
+        self.t2v, self.i2v = v["fal_t2v_model"], v["fal_i2v_model"]
         self.aspect = "9:16" if portrait else "16:9"
+        self.segment = float(v.get("fal_segment_seconds", 5))
+        self.style = (v.get("ai_style") or "").strip()
 
     def _run(self, model: str, payload: dict, log: Callable[[str], None]) -> str:
         r = requests.post(f"{self.QUEUE}/{model}", json=payload, headers=self.h, timeout=60)
@@ -427,7 +432,10 @@ class FalVideo:
             raise RuntimeError(f"fal.ai no devolvió video: {str(out)[:300]}")
         return video["url"]
 
-    def generate(self, prompt: str, start_frame: Path | None, dest: Path, log: Callable[[str], None]) -> Path:
+    def generate(self, prompt: str, start_frame: Path | None, dest: Path, log: Callable[[str], None],
+                 seconds: float | None = None) -> Path:
+        if self.style:
+            prompt = f"{prompt.rstrip('. ')}. {self.style}"
         payload = {"prompt": prompt, "aspect_ratio": self.aspect}
         if start_frame is not None:
             b64 = base64.b64encode(start_frame.read_bytes()).decode()
@@ -439,74 +447,111 @@ class FalVideo:
         return dest
 
 
+
+
 # ── orquestación por item ─────────────────────────────
 
-def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, use_fal: bool,
+def ai_provider(cfg: dict, portrait: bool, log: Callable[[str, str], None]):
+    """Generador de video IA según la configuración, o None (con aviso) si no se puede usar."""
+    prov = cfg["video"]["visual_provider"]
+    if prov == "fal":
+        key = S.get_secret("fal_api_key")
+        if not key:
+            log("Proveedor fal.ai seleccionado pero falta la API key; se usan clips de stock.", "warn")
+            return None
+        return FalVideo(key, cfg, portrait)
+    if prov == "comfyui":
+        from .comfyui import ComfyVideo
+        try:
+            ai = ComfyVideo(cfg, portrait)
+            ai.ensure_running(lambda m: log(m, "info"))
+            return ai
+        except Exception as e:
+            log(f"{e} Se usan clips de stock.", "warn")
+            return None
+    return None
+
+
+def ai_shot_ids(shots: list[Shot], cfg: dict) -> list[int]:
+    """Índices de las tomas que van con IA. Con ComfyUI se puede limitar a las primeras N (el gancho)."""
+    v = cfg["video"]
+    n = int(v.get("comfy_max_shots", 0) or 0) if v["visual_provider"] == "comfyui" else 0
+    return list(range(len(shots) if n <= 0 else min(n, len(shots))))
+
+
+def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
+                 log: Callable[[str, str], None]) -> Path:
+    """Genera una toma (en uno o más segmentos encadenados) y devuelve el último segmento."""
+    parts = max(1, math.ceil(shot.duration / ai.segment - 0.15))  # tolera tomas apenas más largas que un segmento
+    clips = []
+    for k in range(parts):
+        dest = out_dir / f"ai_{i:03d}_{k}.mp4"
+        if dest.is_file() and dest.stat().st_size > 0:  # «Reintentar» reutiliza lo ya generado
+            log(f"IA: toma {i+1}.{k+1} reutilizada.", "info")
+        else:
+            start = None
+            if prev_clip is not None:
+                start = ffmpeg.extract_frame(prev_clip, out_dir / f"frame_{i:03d}_{k}.jpg", last=True)
+            log(f"IA: generando toma {i+1}.{k+1} {'desde el último fotograma' if start else 'inicial'}", "info")
+            ai.generate(shot.prompt, start, dest, lambda m: log(m, "info"), seconds=shot.duration / parts)
+        clips.append(dest)
+        prev_clip = dest
+    if len(clips) == 1:
+        shot.source = clips[0]
+    else:
+        joined = out_dir / f"ai_{i:03d}.mp4"
+        lst = out_dir / f"ai_{i:03d}.txt"
+        lst.write_text("".join(f"file '{c.name}'\n" for c in clips), encoding="utf-8")
+        ffmpeg.run(["-f", "concat", "-safe", "0", "-i", lst.name, "-c", "copy", joined.name], cwd=out_dir)
+        shot.source = joined
+    shot.kind, shot.credit = "video", "Generado con IA"
+    return prev_clip
+
+
+def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, use_ai: bool,
                    out_dir: Path, log: Callable[[str, str], None], progress: Callable[[float], None],
                    broll: list[str] | tuple = ()):
+    """Asigna material a cada toma. Modifica `shots` en el lugar (la selección de stock puede fundir tomas)."""
     stock = stock_sources(portrait, min_side)
-    fal = None
-    if use_fal:
-        fal_key = S.get_secret("fal_api_key")
-        if not fal_key:
-            log("Proveedor fal.ai seleccionado pero falta la API key; se usan clips de stock.", "warn")
-        else:
-            v = cfg["video"]
-            fal = FalVideo(fal_key, v["fal_t2v_model"], v["fal_i2v_model"], portrait)
-    if not stock and not fal:
+    ai = ai_provider(cfg, portrait, log) if use_ai else None
+    if not stock and not ai:
         log("Sin fuente de clips configurada: se usarán fondos de color. "
             "Agrega la API key de Pixabay o Pexels en Configuración.", "warn")
 
-    if stock and not fal:
-        assign_stock(shots, stock, cfg, portrait, log, progress, broll)
+    # índice original de cada toma IA: nombra sus archivos de forma estable para «Reintentar»
+    ai_idx = {id(shots[i]): i for i in ai_shot_ids(shots, cfg)} if ai else {}
+    rest = [s for s in shots if id(s) not in ai_idx]
+    share = len(rest) / max(1, len(shots))
+    if rest and stock:
+        assign_stock(rest, stock, cfg, portrait, log, lambda p: progress(p * share), broll)
+        keep = {id(s) for s in rest} | set(ai_idx)
+        shots[:] = [s for s in shots if id(s) in keep]
+    if not ai:
         return shots
 
+    log(f"IA: {len(ai_idx)} toma(s) con video generado"
+        + (f"; {len(shots) - len(ai_idx)} con clips de stock." if len(shots) > len(ai_idx) else "."), "info")
     prev_clip: Path | None = None
-    for i, shot in enumerate(shots):
-        try:
-            if fal:
-                seg = float(cfg["video"]["fal_segment_seconds"])
-                parts = max(1, math.ceil(shot.duration / seg))
-                # una toma larga se compone de varios segmentos encadenados
-                clips = []
-                for k in range(parts):
-                    start = None
-                    if prev_clip is not None:
-                        start = ffmpeg.extract_frame(prev_clip, out_dir / f"frame_{i:03d}_{k}.jpg", last=True)
-                    dest = out_dir / f"ai_{i:03d}_{k}.mp4"
-                    log(f"IA: generando toma {i+1}.{k+1} {'desde el último fotograma' if start else 'inicial'}", "info")
-                    fal.generate(shot.prompt, start, dest, lambda m: log(m, "info"))
-                    clips.append(dest)
-                    prev_clip = dest
-                if len(clips) == 1:
-                    shot.source = clips[0]
-                else:
-                    joined = out_dir / f"ai_{i:03d}.mp4"
-                    lst = out_dir / f"ai_{i:03d}.txt"
-                    lst.write_text("".join(f"file '{c.name}'\n" for c in clips), encoding="utf-8")
-                    ffmpeg.run(["-f", "concat", "-safe", "0", "-i", lst.name, "-c", "copy", joined.name], cwd=out_dir)
-                    shot.source = joined
-                shot.kind, shot.credit = "video", "Generado con IA"
-            elif stock:
-                found = _from_stock(stock, "video", shot.query, shot.duration, log)
-                if found:
-                    shot.source, shot.credit = found
-                    shot.kind = "video"
-                else:
-                    photo = _from_stock(stock, "photo", shot.query, 0, log)
-                    if photo:
-                        shot.source, shot.credit = photo
-                        shot.kind = "image"
-                        log(f"Sin video para «{shot.query}»; se usa foto con movimiento.", "warn")
-                    else:
-                        log(f"Sin material para «{shot.query}»; se usa fondo de color.", "warn")
-        except Exception as e:
-            log(f"Toma {i+1}: {e}. Se usa respaldo.", "warn")
-            if fal:
+    done = 0
+    try:
+        for shot in shots:
+            i = ai_idx.get(id(shot))
+            if i is None:
+                prev_clip = None  # la cadena solo sigue entre tomas IA consecutivas
+                continue
+            try:
+                prev_clip = _generate_ai(ai, shot, i, prev_clip, out_dir, log)
+            except Exception as e:
+                log(f"Toma {i+1}: {e}. Se usa respaldo.", "warn")
                 prev_clip = None  # reinicia la cadena
-                found = _from_stock(stock, "video", shot.query, shot.duration, log)
+                found = _from_stock(stock, "video", shot.query, shot.duration, log) if stock else None
                 if found:
                     shot.source, shot.credit = found
                     shot.kind = "video"
-        progress((i + 1) / len(shots))
+            done += 1
+            progress(share + (1 - share) * done / len(ai_idx))
+    finally:
+        release = getattr(ai, "release", None)
+        if release:
+            release()
     return shots

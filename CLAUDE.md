@@ -19,15 +19,17 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
 
 ## Dos equipos
 
-| | PC principal (sesiones anteriores) | PC con GPU (este, si estás aquí por primera vez) |
+| | PC principal (sesiones anteriores) | PC con GPU (verificado el 2026-11-13) |
 |---|---|---|
-| Hardware | Portátil i7-8550U, sin GPU NVIDIA, 16 GB RAM | Ryzen 7 serie 8000, **RTX 5060 8 GB** (Blackwell), 16 GB RAM |
-| Rol | Pipeline completo en CPU | Igual + **modelos locales de video IA** |
-| Python | 3.14 (venv en `venv/`) | Instalar Python 3.14 y ejecutar `setup.ps1` o abrir `AgenteDeClips.exe` |
+| Hardware | Portátil i7-8550U, sin GPU NVIDIA, 16 GB RAM | Portátil Ryzen 5 8645HS, **RTX 4050 Laptop 6 GB** (Ada, cc 8.9), 15 GB RAM, ~50 GB libres en C: |
+| Rol | Pipeline completo en CPU | Igual + **video IA local con ComfyUI** |
+| Python | 3.14 (venv en `venv/`) | venv con **Python 3.12** (funciona; las pruebas pasan) |
 
-- El pipeline base debe seguir funcionando solo con CPU (Windows, Python 3.14). Lo que necesite GPU es opcional.
-- RTX 5060 = Blackwell: PyTorch necesita CUDA 12.8 o superior.
-- Con 8 GB de VRAM y 16 GB de RAM, los modelos de 14B solo caben cuantizados (GGUF/fp8) con descarga a RAM, que queda justa.
+- El pipeline base debe seguir funcionando solo con CPU (Windows, Python 3.12+). Lo que necesite GPU es opcional.
+- El plan original suponía una RTX 5060 de 8 GB; la real es de 6 GB. Con 6 GB y 15 GB de RAM, los modelos de 14B
+  quedan descartados en la práctica; se usa Wan 2.2 TI2V-5B cuantizado (GGUF Q5_K_M) a 480p.
+- ComfyUI portable está **fuera del repo**, en `%USERPROFILE%\ComfyUI_windows_portable` (v0.45.0, Python 3.13
+  embebido, PyTorch 2.14 + CUDA 13.0), con el nodo `custom_nodes/ComfyUI-GGUF`.
 
 ## Credenciales (importante en un PC nuevo)
 
@@ -75,24 +77,24 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   (1 Short, sin video largo) y llama `pipeline.main(["--no-publish", "--run-id", "zz-prueba"])`. Borrar `runs/zz-*` al final.
 - Avisa al usuario antes de pruebas que gasten cuota o dinero; nunca publiques en sus cuentas sin que lo pida.
 
-## Lo que sigue en el PC con GPU (plan acordado)
+## Video IA local (hecho en el PC con GPU)
 
 Objetivo del usuario: video de calidad profesional tipo cine o anime generado **localmente**.
 
-1. Instalar **ComfyUI** en el PC con GPU (PyTorch CUDA 12.8+), como servicio en la red local o en el mismo PC.
-2. Modelos candidatos (verificar requisitos actuales antes de descargar):
-   - **Wan 2.2 TI2V-5B**: recomendado; 720p, cabe en 8 GB con descarga a RAM. Apache 2.0.
-   - Wan 2.2 14B GGUF + LoRA Lightx2v: mejor movimiento; ~2-3 min por clip de 5 s a 480p según usuarios.
-   - **Index-AniSora** (Bilibili, basado en Wan) para anime; su versión liviana pide 12 GB (no confirmado en 8 GB).
-   - LTX-2 / 2.3 GGUF: video con audio, ~540p en 8 GB según usuarios. HunyuanVideo 1.5 pide 14 GB: descartado.
-   - Anime con estilo/personajes consistentes: Wan 2.2 + LoRA de estilo, o imagen clave primero y luego imagen→video.
-3. Agregar un proveedor visual **`comfyui`** en `visuals.py` junto a `pexels` y `fal` (misma interfaz que `FalVideo`:
-   texto→video e imagen→video encadenando el último fotograma), usando el `visual_prompt` de cada escena y la API HTTP
-   de ComfyUI con un workflow JSON guardado en el repo. Ajustes en `settings.py` (URL, workflow, alcance) y en la UI.
-4. Por tiempos (un Short de 40 s ≈ 8 clips ≈ 20 min), usar IA en el gancho y escenas clave, y stock en el resto.
-
-Otras ideas pendientes (no pedidas aún): publicación programada en YouTube (`publishAt`), voz clonada local,
-subtítulos con alineación forzada local (p. ej. Whisper) para la voz de Gemini en la GPU.
+- Proveedor visual **`comfyui`** (`agente/comfyui.py`, `ComfyVideo`, misma interfaz que `FalVideo`): texto→video e
+  imagen→video desde el último fotograma de la toma anterior, por la API HTTP de ComfyUI (`/upload/image`, `/prompt`,
+  `/history`, `/view`, `/interrupt`, `/free`). Workflow en `agente/workflows/wan22_ti2v_5b.json` (formato API, con
+  marcadores `{{prompt}}`, `{{width}}`… que reemplaza `comfyui.fill`; sin imagen se borra el nodo `{{start_image}}`).
+- En `SaveVideo` (ComfyUI ≥ 0.45) los combos anidados van con punto en la API: `"format": "mp4", "format.codec": "h264"`.
+- Modelo: Wan 2.2 TI2V-5B GGUF Q5_K_M + UMT5 GGUF Q5_K_M + `wan2.2_vae`, a 832x480 (múltiplos de 32), 24 fps, 4n+1 cuadros.
+  Tiempo medido (2026-11-13, RTX 4050 6 GB): ~19 s por paso, ~8 min por toma de 5 s (la primera ~11,5 min por la
+  carga), 20 pasos. La continuidad imagen→video funciona; con 16 GB la RAM libre baja a ~1 GB al cargar los modelos.
+- Modo mixto (`comfy_max_shots`, por defecto 2): IA en las primeras tomas (el gancho) y stock con visión en el resto
+  (`visuals.fetch_for_item`). La cadena de fotogramas solo sigue entre tomas IA consecutivas. Si `comfy_path` está
+  configurado y ComfyUI está cerrado, el run lo abre y lo cierra al terminar; si ya estaba abierto, solo pide `/free`.
+- Ideas siguientes: LoRA de estilo anime o Wan 2.2 14B (no cabe bien en 6 GB), imagen clave primero (texto→imagen) y
+  luego imagen→video para personajes consistentes, publicación programada en YouTube (`publishAt`), voz clonada local,
+  subtítulos con alineación forzada local (Whisper) para la voz de Gemini.
 
 ## Convenciones
 
