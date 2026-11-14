@@ -42,9 +42,11 @@ class Shot:
     anim: dict | None = None  # animación Remotion a superponer
     overlay: Path | None = None
     punch: float = 0.0        # acercamiento rápido al inicio de la toma (0 = no; 0.06 = 6 %)
+    bible: str = ""           # ficha visual del video (personaje, lugar, estilo) para el generador IA
+    chained: bool = False     # la toma IA continúa desde el último cuadro de la anterior
 
 
-def plan_shots(scenes: list, durations: list[float]) -> list[Shot]:
+def plan_shots(scenes: list, durations: list[float], bible: str = "") -> list[Shot]:
     shots = []
     for i, (sc, d) in enumerate(zip(scenes, durations)):
         anim = getattr(sc, "animation", None)
@@ -53,7 +55,7 @@ def plan_shots(scenes: list, durations: list[float]) -> list[Shot]:
         n = 1 if anim else max(1, round(d / SHOT_SECONDS))
         for k in range(n):
             shots.append(Shot(scene=i, duration=d / n, query=sc.visual_query, prompt=sc.visual_prompt,
-                              text=sc.narration, anim=anim if k == 0 else None))
+                              text=sc.narration, anim=anim if k == 0 else None, bible=bible))
     return shots
 
 
@@ -485,10 +487,49 @@ def last_frame(video: Path, out: Path) -> Path:
     return out
 
 
+def ai_prompt(shot: Shot) -> str:
+    return f"{shot.prompt.rstrip('. ')}. {shot.bible}".strip() if shot.bible else shot.prompt
+
+
+def _make_segment(ai, prompt: str, start: Path | None, dest: Path, seconds: float, log) -> None:
+    raw = dest.with_name(dest.stem + "_raw.mp4")
+    ai.generate(prompt, start, raw, lambda m: log(m, "info"), seconds=seconds)
+    if start is not None:
+        # el 1.er cuadro repite el último de la toma anterior: se quita para que el empalme no se congele
+        ffmpeg.run(["-i", raw, "-vf", "trim=start_frame=1,setpts=PTS-STARTPTS", "-an",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", dest])
+        raw.unlink(missing_ok=True)
+    else:
+        raw.replace(dest)
+
+
+def _director(cfg: dict, log) -> Callable | None:
+    """Revisor con visión de cada segmento IA (si está activado y hay proveedor)."""
+    from . import vision
+    v = cfg["video"]
+    if v["visual_provider"] != "comfyui" or not v.get("comfy_director", True) or not vision.provider(cfg):
+        return None
+    min_score = int(v.get("comfy_director_min", 6))
+
+    def judge(shot: Shot, clip: Path, seconds: float, prompt: str):
+        frames = [ffmpeg.extract_frame(clip, clip.with_name(clip.stem + "_mid.jpg"), at=seconds / 2, width=384),
+                  ffmpeg.extract_frame(clip, clip.with_name(clip.stem + "_end.jpg"), last=True, width=384)]
+        verdict = vision.judge_shot(cfg, frames, shot.text, prompt, log)
+        for f in frames:
+            f.unlink(missing_ok=True)
+        if verdict is None or verdict.score >= min_score:
+            return None
+        return verdict
+    return judge
+
+
 def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
-                 log: Callable[[str, str], None]) -> Path:
+                 log: Callable[[str, str], None], judge: Callable | None = None) -> Path:
     """Genera una toma (en uno o más segmentos encadenados) y devuelve el último segmento."""
     parts = max(1, math.ceil(shot.duration / ai.segment - 0.15))  # tolera tomas apenas más largas que un segmento
+    seconds = shot.duration / parts
+    prompt = ai_prompt(shot)
+    shot.chained = prev_clip is not None
     clips = []
     for k in range(parts):
         dest = out_dir / f"ai_{i:03d}_{k}.mp4"
@@ -497,15 +538,16 @@ def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
         else:
             start = last_frame(prev_clip, out_dir / f"frame_{i:03d}_{k}.png") if prev_clip is not None else None
             log(f"IA: generando toma {i+1}.{k+1} {'desde el último fotograma' if start else 'inicial'}", "info")
-            raw = dest.with_name(dest.stem + "_raw.mp4")
-            ai.generate(shot.prompt, start, raw, lambda m: log(m, "info"), seconds=shot.duration / parts)
-            if start is not None:
-                # el 1.er cuadro repite el último de la toma anterior: se quita para que el empalme no se congele
-                ffmpeg.run(["-i", raw, "-vf", "trim=start_frame=1,setpts=PTS-STARTPTS", "-an",
-                            "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", dest])
-                raw.unlink(missing_ok=True)
-            else:
-                raw.replace(dest)
+            _make_segment(ai, prompt, start, dest, seconds, log)
+            bad = judge(shot, dest, seconds, prompt) if judge else None
+            if bad is not None:
+                # se desvió de la escena: una sola regeneración, desde cero y con el prompt corregido
+                log(f"Director IA: toma {i+1}.{k+1} con nota {bad.score}/10 ({bad.issue}); se regenera desde cero.", "warn")
+                if bad.better_prompt.strip():
+                    prompt = f"{bad.better_prompt.strip().rstrip('. ')}. {shot.bible}".strip()
+                _make_segment(ai, prompt, None, dest, seconds, log)
+                if k == 0:
+                    shot.chained = False
         clips.append(dest)
         prev_clip = dest
     if len(clips) == 1:
@@ -544,7 +586,10 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
 
     log(f"IA: {len(ai_idx)} toma(s) con video generado"
         + (f"; {len(shots) - len(ai_idx)} con clips de stock." if len(shots) > len(ai_idx) else "."), "info")
+    by_scene = cfg["video"].get("comfy_chain", "scene") == "scene" and cfg["video"]["visual_provider"] == "comfyui"
+    judge = _director(cfg, log)
     prev_clip: Path | None = None
+    prev_scene: int | None = None
     done = 0
     try:
         for shot in shots:
@@ -552,8 +597,11 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
             if i is None:
                 prev_clip = None  # la cadena solo sigue entre tomas IA consecutivas
                 continue
+            if by_scene and shot.scene != prev_scene:
+                prev_clip = None  # escena nueva: arranca desde el texto (corte), así vuelve a seguir la narración
+            prev_scene = shot.scene
             try:
-                prev_clip = _generate_ai(ai, shot, i, prev_clip, out_dir, log)
+                prev_clip = _generate_ai(ai, shot, i, prev_clip, out_dir, log, judge)
             except Exception as e:
                 log(f"Toma {i+1}: {e}. Se usa respaldo.", "warn")
                 prev_clip = None  # reinicia la cadena

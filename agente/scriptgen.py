@@ -29,7 +29,9 @@ class Animation(BaseModel):
 class Scene(BaseModel):
     narration: str = Field(description="Texto exacto que dirá la voz en off. Sin títulos, emojis ni acotaciones.")
     visual_query: str = Field(description="2 a 4 palabras EN INGLÉS, concretas y filmables, para buscar video de stock (ej. 'chopping fresh vegetables').")
-    visual_prompt: str = Field(description="Prompt EN INGLÉS de 1-2 frases describiendo la toma para un generador de video IA: sujeto, acción, cámara, luz. Mantén coherencia visual con las escenas vecinas.")
+    visual_prompt: str = Field(description="Prompt EN INGLÉS de 1-2 frases para un generador de video IA. Nombra SIEMPRE el sujeto "
+                               "principal con las mismas palabras de visual_bible (no uses 'it' ni 'the same'), su acción concreta, el lugar, "
+                               "la cámara y la luz. Una sola acción simple y filmable en 5 segundos.")
     animation: Optional[Animation] = Field(default=None, description="Gráfico animado sobre la toma (opcional). null si la escena no lo necesita.")
 
 
@@ -44,6 +46,9 @@ class VideoPlan(BaseModel):
     title: str = Field(description="Título atractivo, máximo 90 caracteres.")
     description: str = Field(description="Descripción para la publicación, 2-4 frases.")
     hashtags: list[str] = Field(description="5 a 8 hashtags relevantes, con #.")
+    visual_bible: str = Field(default="", description="EN INGLÉS, 2-3 frases que fijan el aspecto del video para el generador IA: "
+                              "sujeto o personaje principal (especie/edad, rasgos, ropa, colores), lugar y época, estilo visual y paleta. "
+                              "Se agrega a cada toma para que el personaje y el ambiente no cambien.")
     scenes: list[Scene]
     thumbnail_text: str = Field(default="", description="Texto para la miniatura: 2 a 5 palabras impactantes, "
                                                         "distintas del título (ej. 'ADIÓS AL HUEVO').")

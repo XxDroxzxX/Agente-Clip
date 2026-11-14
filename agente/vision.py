@@ -7,10 +7,11 @@ disponible o falla, se usa el orden de relevancia del banco de clips.
 from __future__ import annotations
 
 import base64
+import re
 from pathlib import Path
 from typing import Callable
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ValidationError
 
 from . import settings as S
 
@@ -52,29 +53,73 @@ def provider(cfg: dict) -> str | None:
     return "gemini" if has_gem else "claude" if has_cl else None  # auto: primero la opción gratuita
 
 
-def _ask(prov: str, cfg: dict, parts: list, orient: str, log) -> Ranking:
-    system = PROMPT.format(orient=orient, niche=cfg["content"]["niche"])
+def _call(prov: str, cfg: dict, system: str, parts: list, model: type[BaseModel], log, max_tokens: int = 2000):
+    """Envía texto e imágenes (Path) al proveedor con visión y valida la respuesta con `model`."""
     if prov == "gemini":
         from . import gemini
         inp = [{"type": "text", "text": p} if isinstance(p, str)
                else {"type": "image", "data": base64.b64encode(p.read_bytes()).decode(), "mime_type": "image/jpeg"}
                for p in parts]
-        model = cfg["video"].get("vision_gemini_model") or None
-        text, _ = gemini.generate(gemini.chain(model, gemini.LITE_FIRST), inp, system=system,
-                                  schema=Ranking.model_json_schema(), thinking="low", timeout=180,
-                                  log=lambda m: log(m, "info"))
-        return Ranking.model_validate_json(text)
+        chain_model = cfg["video"].get("vision_gemini_model") or None
+        text, _ = gemini.generate(gemini.chain(chain_model, gemini.LITE_FIRST), inp, system=system,
+                                  schema=model.model_json_schema(), thinking="low", timeout=180,
+                                  log=lambda m: log(m, "info"), max_tokens=max_tokens)
+        return model.model_validate_json(text)
     import anthropic
     client = anthropic.Anthropic(api_key=S.get_secret("anthropic_api_key"), max_retries=2)
     content = [{"type": "text", "text": p} if isinstance(p, str)
                else {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
                                                  "data": base64.b64encode(p.read_bytes()).decode()}}
                for p in parts]
-    resp = client.messages.parse(model=CLAUDE_VISION_MODEL, max_tokens=2000, system=system,
-                                 messages=[{"role": "user", "content": content}], output_format=Ranking)
+    resp = client.messages.parse(model=CLAUDE_VISION_MODEL, max_tokens=max_tokens, system=system,
+                                 messages=[{"role": "user", "content": content}], output_format=model)
     if resp.parsed_output is None:
-        raise RuntimeError("Claude no devolvió un ranking válido.")
+        raise RuntimeError("Claude no devolvió una respuesta válida.")
     return resp.parsed_output
+
+
+def _ask(prov: str, cfg: dict, parts: list, orient: str, log) -> Ranking:
+    return _call(prov, cfg, PROMPT.format(orient=orient, niche=cfg["content"]["niche"]), parts, Ranking, log)
+
+
+# ── director de video IA ──────────────────────────────
+
+DIRECTOR_PROMPT = """Eres director de un video generado con IA para un canal sobre «{niche}». Verás dos cuadros
+(mitad y final) de una toma recién generada, la narración que la acompaña y el prompt que se usó.
+Juzga si la toma muestra de forma reconocible lo que pide la escena: el sujeto principal debe verse y la acción o
+ambiente deben corresponder. No castigues el estilo artístico ni la oscuridad si el tema lo pide. Castiga: sujeto
+ausente o irreconocible, cuerpos deformes, objetos sin sentido, texto o marcas de agua, imagen degradada.
+score: 1 (nada que ver o roto) a 10 (perfecta). Si score < 6, escribe en better_prompt un prompt NUEVO en inglés
+(1-2 frases) que nombre explícitamente el sujeto principal, su aspecto, la acción, el lugar y la cámara, sin
+negaciones. issue: el problema en pocas palabras, en español."""
+
+
+class Verdict(BaseModel):
+    score: int
+    issue: str = Field("", max_length=200)
+    better_prompt: str = Field("", max_length=600)
+
+
+def judge_shot(cfg: dict, frames: list[Path], narration: str, prompt: str, log) -> Verdict | None:
+    """Revisa una toma IA. Devuelve None si no hay proveedor con visión o la consulta falla (no bloquea el run)."""
+    prov = provider(cfg)
+    if not prov:
+        return None
+    parts: list = [f"NARRACIÓN: «{narration}»", f"PROMPT USADO: {prompt}"]
+    for n, f in enumerate(frames):
+        parts += [f"Cuadro {n + 1}", f]
+    try:
+        return _call(prov, cfg, DIRECTOR_PROMPT.format(niche=cfg["content"]["niche"]), parts, Verdict, log, 800)
+    except ValidationError as e:
+        # respuesta cortada (p. ej. el modelo se repite sin fin): basta con la nota para decidir
+        m = re.search(r'"score"\s*:\s*(\d+)', str(e))
+        if m:
+            return Verdict(score=int(m.group(1)), issue="respuesta del director incompleta")
+        log("Director IA no disponible para esta toma (respuesta inválida); se acepta tal cual.", "warn")
+        return None
+    except Exception as e:
+        log(f"Director IA no disponible para esta toma ({e}); se acepta tal cual.", "warn")
+        return None
 
 
 def rank_scenes(cfg: dict, scenes: list[dict], portrait: bool,

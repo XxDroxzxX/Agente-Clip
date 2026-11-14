@@ -803,11 +803,16 @@ function renderSettings() {
       ${field("video.fal_scope", "Usar IA en", "select", { options: [["shorts", "Solo Shorts (stock para el largo)"], ["all", "Shorts y video largo"]] })}
       ${field("video.comfy_resolution", "Resolución IA", "select", { options: [["480p", "480p (recomendada con 6–8 GB de VRAM)"], ["544p", "544p"], ["704p", "704p (nativa, pide 12 GB o más)"]], help: "Se escala al tamaño final del video." })}
       ${field("video.comfy_segment_seconds", "Segundos por segmento IA", "number", { min: 2, max: 8 })}
+      ${field("video.comfy_chain", "Continuidad", "select", { options: [["scene", "Encadenar dentro de cada escena (corte al cambiar)"], ["all", "Una sola cadena para todo el video"]], help: "Cada toma sigue desde el último cuadro de la anterior. Con una sola cadena el video es más continuo, pero tiende a alejarse de la narración." })}
+      ${field("video.comfy_director_min", "Nota mínima del director IA (1–10)", "number", { min: 1, max: 10, help: "Las tomas con nota menor se regeneran una vez desde cero." })}
       ${field("video.ai_style", "Estilo visual (opcional)", "text", { help: "Se agrega a cada escena, en inglés. Ej.: <code>cinematic, film grain, shallow depth of field</code> o <code>anime style, studio quality</code>." })}
       ${field("video.comfy_steps", "Pasos de muestreo", "number", { min: 4, max: 50, help: "Más pasos = más detalle y más tiempo. 20 es el valor del modelo." })}
       ${field("video.comfy_path", "Carpeta de ComfyUI portable", "text", { help: "Si ComfyUI está cerrado, el run lo abre y lo cierra al terminar (libera la memoria)." })}
       ${field("video.comfy_url", "Dirección de ComfyUI", "text", { help: "Otro PC de la red también sirve, p. ej. <code>http://192.168.1.50:8188</code>." })}
       ${field("video.comfy_workflow", "Workflow", "text", { help: "En <code>agente/workflows/</code> o ruta completa. Formato API con marcadores {{prompt}}, {{width}}…" })}
+    </div>
+    ${toggle("video.comfy_director", "Director IA", "Tras cada toma, una IA con visión (Gemini gratis) compara dos cuadros con la narración y regenera la toma si se desvió. Cuesta más tiempo de GPU solo cuando regenera.")}
+    <div class="form-grid">
       <div class="field full"><span class="help">⏱ En una RTX 4050 de 6 GB cada toma de 5 s a 480p tarda ~8 min (la primera ~11 min, porque carga los modelos): un Short con 2 tomas IA suma ~20 min. Si una toma falla, se usa un clip de stock.</span></div>
     </div>` : ""}
     ${d.video.visual_provider !== "fal" ? `<div class="form-grid" style="margin-top:16px">

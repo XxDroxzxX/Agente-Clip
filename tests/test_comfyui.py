@@ -95,7 +95,7 @@ class OrchestrationTest(unittest.TestCase):
     def test_hook_only_uses_ai_and_chains(self):
         fake = FakeAI()
         shots = self._shots()
-        cfg = _cfg(visual_provider="comfyui", comfy_max_shots=2)
+        cfg = _cfg(visual_provider="comfyui", comfy_max_shots=2, comfy_chain="all", comfy_director=False)
         with tempfile.TemporaryDirectory() as tmp, \
                 mock.patch.object(visuals, "stock_sources", return_value=[]), \
                 mock.patch.object(visuals, "ai_provider", return_value=fake), \
@@ -121,10 +121,38 @@ class OrchestrationTest(unittest.TestCase):
                 mock.patch.object(visuals, "ai_provider", return_value=fake), \
                 mock.patch.object(visuals.ffmpeg, "extract_frame", side_effect=lambda v, out, **k: out), \
                 mock.patch.object(visuals.ffmpeg, "run"):
-            visuals.fetch_for_item(shots, False, 1080, _cfg(visual_provider="comfyui", comfy_max_shots=0),
+            visuals.fetch_for_item(shots, False, 1080, _cfg(visual_provider="comfyui", comfy_max_shots=0, comfy_director=False),
                                    True, Path(tmp), lambda *a: None, lambda p: None)
         self.assertEqual(fake.calls, [("p", False, 4.5), ("p", True, 4.5)])
         self.assertEqual(shots[0].source.name, "ai_000.mp4")
+
+    def _run(self, shots, cfg, fake, judge=None):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(visuals, "stock_sources", return_value=[]), \
+                mock.patch.object(visuals, "ai_provider", return_value=fake), \
+                mock.patch.object(visuals, "_director", return_value=judge), \
+                mock.patch.object(visuals.ffmpeg, "run", side_effect=_fake_ffmpeg([])):
+            visuals.fetch_for_item(shots, True, 1080, cfg, True, Path(tmp), lambda *a: None, lambda p: None)
+
+    def test_chain_restarts_on_new_scene(self):
+        fake = FakeAI()
+        shots = [visuals.Shot(scene=s, duration=4.0, query="q", prompt=f"p{n}", bible="a black dog")
+                 for n, s in enumerate([0, 0, 1, 1])]
+        self._run(shots, _cfg(visual_provider="comfyui", comfy_max_shots=0, comfy_chain="scene"), fake)
+        self.assertEqual([c[1] for c in fake.calls], [False, True, False, True])
+        self.assertEqual(fake.calls[0][0], "p0. a black dog")  # la ficha visual va en cada prompt
+        self.assertEqual([s.chained for s in shots], [False, True, False, True])
+
+    def test_director_regenerates_from_scratch(self):
+        fake = FakeAI()
+        shots = [visuals.Shot(scene=0, duration=4.0, query="q", prompt=f"p{n}", bible="a black dog") for n in range(2)]
+        verdicts = iter([None, mock.Mock(score=3, issue="no se ve el perro", better_prompt="A black dog barks")])
+        judge = lambda *a: next(verdicts)
+        self._run(shots, _cfg(visual_provider="comfyui", comfy_max_shots=0), fake, judge)
+        # 2.a toma: encadenada, reprobada y regenerada desde el texto con el prompt corregido
+        self.assertEqual(fake.calls[1][:2], ("p1. a black dog", True))
+        self.assertEqual(fake.calls[2][:2], ("A black dog barks. a black dog", False))
+        self.assertFalse(shots[1].chained)
 
     def test_fal_uses_ai_on_every_shot(self):
         self.assertEqual(visuals.ai_shot_ids(self._shots(), _cfg(visual_provider="fal", comfy_max_shots=2)),

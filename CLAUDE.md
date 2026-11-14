@@ -93,6 +93,14 @@ Objetivo del usuario: video de calidad profesional tipo cine o anime generado **
   IA 9/10, sin saltos en los empalmes (medido con `scdet`). Ritmo ≈ 1,6 min de GPU por segundo de video → 10 min ≈ 16-17 h.
   Problema visto: la cadena mantiene el ambiente pero se aleja de la narración (el sujeto casi no aparece). Enlace:
   último cuadro exacto en PNG (`visuals.last_frame`) y se recorta el 1.er cuadro de cada toma encadenada.
+- **Director de continuidad** (contra esa deriva): el guion trae `visual_bible` (personaje, lugar, estilo; va al final
+  de cada prompt IA y los `visual_prompt` nombran al sujeto con las mismas palabras); `comfy_chain="scene"` encadena
+  solo dentro de cada escena y corta al cambiar (`"all"` = una sola cadena); `comfy_director` (por defecto activo):
+  `vision.judge_shot` mira el cuadro medio y el final con Gemini/Claude y, si la nota < `comfy_director_min` (6),
+  regenera la toma una vez desde texto con `better_prompt`. El punch-in solo se aplica en cortes reales.
+  Run 2026-11-14 (Short de 33 s, todo IA): 81 min, 3 tomas regeneradas, revisión 8/10; el mismo personaje se ve
+  en todo el video y sigue la historia. Gemini a veces entra en bucle repitiendo palabras: por eso
+  `gemini.generate(max_tokens=…)` (`max_output_tokens`) y `judge_shot` rescata la nota de un JSON cortado.
 - Modo mixto (`comfy_max_shots`, por defecto 2): IA en las primeras tomas (el gancho) y stock con visión en el resto
   (`visuals.fetch_for_item`). La cadena de fotogramas solo sigue entre tomas IA consecutivas. Si `comfy_path` está
   configurado y ComfyUI está cerrado, el run lo abre y lo cierra al terminar; si ya estaba abierto, solo pide `/free`.

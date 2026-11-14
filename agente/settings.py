@@ -72,6 +72,9 @@ DEFAULTS: dict[str, Any] = {
         "comfy_fps": 24,
         "comfy_segment_seconds": 5,
         "comfy_max_shots": 2,       # tomas IA por video (las primeras = el gancho); 0 = todas
+        "comfy_chain": "scene",     # scene: encadena dentro de cada escena y corta al cambiar | all: una sola cadena
+        "comfy_director": True,     # una IA con visión revisa cada toma y regenera la que no sigue la escena
+        "comfy_director_min": 6,    # nota mínima (1-10) para aceptar una toma
         "comfy_timeout_min": 30,
         "subtitles": True,
         "music": True,

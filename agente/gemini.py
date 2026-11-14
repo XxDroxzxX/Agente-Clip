@@ -84,15 +84,20 @@ def _output_text(data: dict) -> str:
 
 def generate(models: list[str], input, system: str | None = None, schema: dict | None = None,
              thinking: str | None = None, timeout: int = 600,
-             log: Callable[[str], None] | None = None) -> tuple[str, str]:
+             log: Callable[[str], None] | None = None, max_tokens: int | None = None) -> tuple[str, str]:
     """Devuelve (texto, modelo_usado). Recorre `models` mientras haya cuota agotada o modelo no disponible."""
     body: dict = {"input": input}
     if system:
         body["system_instruction"] = system
     if schema:
         body["response_format"] = {"type": "text", "mime_type": "application/json", "schema": clean_schema(schema)}
+    gen: dict = {}
     if thinking:
-        body["generation_config"] = {"thinking_level": thinking}
+        gen["thinking_level"] = thinking
+    if max_tokens:
+        gen["max_output_tokens"] = max_tokens  # corta respuestas que entran en bucle de repetición
+    if gen:
+        body["generation_config"] = gen
     data, m = interact(models, body, timeout, log)
     return _output_text(data), m
 

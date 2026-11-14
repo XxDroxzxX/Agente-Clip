@@ -161,7 +161,7 @@ def step_visuals(run: Run, cfg: dict, items, audio) -> dict:
     try:
         for idx, (key, plan, portrait) in enumerate(items):
             W, H = render.RESOLUTIONS[(v["quality"], portrait)]
-            shots = visuals.plan_shots(plan.scenes, [s.duration for s in audio[key]])
+            shots = visuals.plan_shots(plan.scenes, [s.duration for s in audio[key]], getattr(plan, "visual_bible", ""))
             use_ai = v["visual_provider"] in ("fal", "comfyui") and (v["fal_scope"] == "all" or portrait)
             src_dir = run.path(key, "sources", "x").parent
 
@@ -175,8 +175,7 @@ def step_visuals(run: Run, cfg: dict, items, audio) -> dict:
             if v.get("transitions", True):
                 for j, sh in enumerate(shots):
                     prev = shots[j - 1] if j > 0 else None
-                    chained = prev is not None and sh.credit == prev.credit == "Generado con IA"
-                    if prev is not None and sh.scene != prev.scene and not chained:  # la cadena IA ya fluye sola
+                    if prev is not None and sh.scene != prev.scene and not sh.chained:  # la cadena IA ya fluye sola
                         sh.punch = 0.08 if portrait else 0.05
             if v.get("animations", True):
                 _render_animations(run, key, shots, W, H, v, log, audio[key])
