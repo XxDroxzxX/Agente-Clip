@@ -677,6 +677,10 @@ async function loadSettings() {
     cfg.musicDir = d.music_dir;
     cfg.geminiVoices = d.gemini_voices || ["Puck"];
     cfg.motion = d.motion || { ok: false, msg: "" };
+    cfg.catalog = d.catalog;
+    cfg.workflows = d.workflows || [];
+    cfg.ollamaModels = cfg.ollamaModels || [];
+    api("/api/ollama-models").then((m) => { if (m.length && JSON.stringify(m) !== JSON.stringify(cfg.ollamaModels)) { cfg.ollamaModels = m; if (cfg.draft.llm.provider === "ollama") renderSettings(); } }).catch(() => {});
     renderSettings();
     if (!cfg.voices.length) api("/api/voices").then((v) => { cfg.voices = v; renderVoiceSelect(); }).catch(() => {});
     loadConnections();
@@ -689,7 +693,7 @@ function field(path, label, type = "text", opts = {}) {
   const id = `f-${path.replace(/\./g, "-")}`;
   let input;
   if (type === "select") {
-    input = `<select id="${id}" data-path="${path}">${opts.options.map(([val, txt]) => `<option value="${esc(val)}" ${String(v) === String(val) ? "selected" : ""}>${esc(txt)}</option>`).join("")}</select>`;
+    input = `<select id="${id}" data-path="${path}" ${opts.num ? 'data-num="1"' : ""}>${opts.options.map(([val, txt]) => `<option value="${esc(val)}" ${String(v) === String(val) ? "selected" : ""}>${esc(txt)}</option>`).join("")}</select>`;
   } else if (type === "textarea") {
     input = `<textarea id="${id}" data-path="${path}" rows="3" style="font-family:inherit;font-size:14px">${esc(v)}</textarea>`;
   } else if (type === "color") {
@@ -700,6 +704,24 @@ function field(path, label, type = "text", opts = {}) {
     input = `<input type="text" id="${id}" data-path="${path}" value="${esc(v)}" placeholder="${esc(opts.placeholder || "")}">`;
   }
   return `<div class="field ${opts.full ? "full" : ""}"><label for="${id}">${esc(label)}</label>${input}${opts.help ? `<span class="help">${opts.help}</span>` : ""}</div>`;
+}
+// Lista con opción «Personalizado…»: lo habitual se elige; lo especial se escribe.
+const CUSTOM = "__custom";
+const customOpen = new Set();
+function choiceField(path, label, presets, opts = {}) {
+  const v = get(cfg.draft, path) ?? "";
+  const known = presets.some(([val]) => String(val) === String(v));
+  const custom = customOpen.has(path) || !known;
+  const id = `f-${path.replace(/\./g, "-")}`;
+  const sel = `<select id="${id}" data-choice="${path}">${presets.map(([val, txt]) => `<option value="${esc(val)}" ${!custom && String(val) === String(v) ? "selected" : ""}>${esc(txt)}</option>`).join("")}<option value="${CUSTOM}" ${custom ? "selected" : ""}>Personalizado…</option></select>`;
+  const inp = custom ? `<input type="text" data-path="${path}" value="${esc(v)}" placeholder="${esc(opts.placeholder || "Escribe el valor")}" style="margin-top:6px">` : "";
+  return `<div class="field ${opts.full ? "full" : ""}"><label for="${id}">${esc(label)}</label>${sel}${inp}${opts.help ? `<span class="help">${opts.help}</span>` : ""}</div>`;
+}
+// Número elegido de una lista (evita valores fuera de rango); conserva el valor actual si no está en la lista.
+function numSelect(path, label, values, opts = {}) {
+  const v = Number(get(cfg.draft, path));
+  const options = values.some(([n]) => n === v) ? values : [...values, [v, `${v} (actual)`]].sort((a, b) => a[0] - b[0]);
+  return field(path, label, "select", { ...opts, options, num: true });
 }
 function toggle(path, title, desc) {
   return `<div class="toggle-row"><div class="tr-text"><b>${esc(title)}</b>${desc ? `<span>${desc}</span>` : ""}</div>
@@ -712,7 +734,7 @@ function radioCards(path, options) {
 }
 
 // listas que muestran u ocultan otras opciones al cambiar
-const RERENDER = ["publish.youtube_method", "publish.tiktok_method", "video.ai_select"];
+const RERENDER = ["publish.youtube_method", "publish.tiktok_method", "video.ai_select", "content.language"];
 
 function renderSettings() {
   const d = cfg.draft;
@@ -724,9 +746,9 @@ function renderSettings() {
     <div class="form-grid">
       ${field("content.niche", "Nicho / temática")}
       ${field("content.audience", "Audiencia")}
-      ${field("content.language", "Idioma", "select", { options: [["es", "Español"], ["en", "Inglés"], ["pt", "Portugués"]] })}
-      ${field("content.region_code", "Región de tendencias", "text", { placeholder: "MX, CO, ES… (vacío = global)" })}
-      ${field("content.research_days", "Analizar videos de los últimos (días)", "number", { min: 3, max: 180 })}
+      ${field("content.language", "Idioma de los videos", "select", { options: cfg.catalog.languages, help: "Cambia también la voz por una de este idioma." })}
+      ${field("content.region_code", "Región de tendencias", "select", { options: cfg.catalog.regions, help: "País cuyos videos populares se analizan en YouTube." })}
+      ${numSelect("content.research_days", "Analizar videos de los últimos", [[7, "7 días"], [14, "14 días"], [30, "30 días"], [60, "60 días"], [90, "90 días"], [180, "180 días"]])}
       ${field("content.extra_instructions", "Instrucciones adicionales para el guion", "textarea", { full: true, help: "Ej.: «Tono cercano, recetas de menos de 20 minutos, sin ingredientes caros»." })}
     </div>
   </div>
@@ -752,7 +774,7 @@ function renderSettings() {
         ${field("llm.claude_effort", "Esfuerzo de razonamiento", "select", { options: [["low", "Bajo (más rápido)"], ["medium", "Medio"], ["high", "Alto (mejor calidad)"]] })}`
       : `
         ${field("llm.ollama_url", "URL de Ollama")}
-        ${field("llm.ollama_model", "Modelo de Ollama", "text", { help: "Recomendado en tu equipo: <code>qwen2.5:7b</code> o <code>qwen2.5:3b</code> (más rápido)." })}
+        ${choiceField("llm.ollama_model", "Modelo de Ollama", ollamaPresets(), { placeholder: "nombre:etiqueta, p. ej. qwen2.5:7b", help: cfg.ollamaModels.length ? "Arriba, los modelos que ya tienes instalados." : "Recomendado: <code>qwen2.5:7b</code> o <code>qwen2.5:3b</code> (más rápido). Ollama no respondió: se muestran los recomendados." })}
         <div class="field"><label>&nbsp;</label><button class="btn sm" id="btnTestOllama" type="button">Probar Ollama</button><span class="help" id="ollamaMsg"></span></div>
         <div class="field full"><details class="howto"><summary>¿Cómo instalo Ollama?</summary><ol>
           <li>Descárgalo de <a href="https://ollama.com/download" target="_blank" rel="noopener">ollama.com/download</a> e instálalo (queda en ejecución junto al reloj).</li>
@@ -766,14 +788,14 @@ function renderSettings() {
     <div class="card-head"><h2>Video y voz</h2></div>
     <p class="card-desc">El video largo es horizontal; los Shorts se generan nativos en vertical, cada uno con su propio guion.</p>
     <div class="form-grid">
-      ${field("video.long_minutes", "Duración del video largo (min)", "number", { min: 1, max: 15 })}
-      ${field("video.shorts_count", "Shorts por run", "number", { min: 0, max: 5 })}
+      ${numSelect("video.long_minutes", "Duración del video largo", [[1, "1 minuto"], [2, "2 minutos"], [3, "3 minutos"], [5, "5 minutos"], [8, "8 minutos"], [10, "10 minutos"], [15, "15 minutos"]])}
+      ${numSelect("video.shorts_count", "Shorts por run", [[0, "Ninguno"], [1, "1"], [2, "2"], [3, "3"], [4, "4"], [5, "5"]])}
       ${field("video.quality", "Calidad", "select", { options: [["1080p", "1080p (mejor)"], ["720p", "720p (más rápido)"]] })}
       ${field("voice.engine", "Motor de voz", "select", { options: [["edge", "Microsoft Edge (gratis, sincronía exacta)"], ["gemini", "Gemini TTS (gratis con tu clave, más expresiva)"]], help: d.voice.engine === "gemini" ? "Si Gemini falla o se agota la cuota, ese video se narra con la voz de Edge." : "" })}
       ${d.voice.engine === "gemini" ? `
-      ${field("voice.gemini_voice", "Voz de Gemini", "select", { options: cfg.geminiVoices.map((v) => [v, v]) })}
-      ${field("voice.gemini_style", "Estilo de lectura", "text", { help: "Cómo debe sonar, en tus palabras. Ej.: «cercano y con energía, acento latino neutro, ritmo ágil»." })}` : ""}
-      <div class="field"><label for="f-voice-name">Voz de Edge${d.voice.engine === "gemini" ? " (respaldo)" : ""}</label><select id="f-voice-name" data-path="voice.name"><option>${esc(d.voice.name)}</option></select></div>
+      ${field("voice.gemini_voice", "Voz de Gemini", "select", { options: cfg.geminiVoices.map((v) => [v, cfg.catalog.gemini_voice_info[v] ? `${v} · ${cfg.catalog.gemini_voice_info[v]}` : v]), help: "Todas hablan el idioma del guion." })}
+      ${choiceField("voice.gemini_style", "Estilo de lectura", cfg.catalog.reading_styles, { placeholder: "Cómo debe sonar, en tus palabras", help: "Elige uno o escribe el tuyo con «Personalizado…»." })}` : ""}
+      <div class="field"><label for="f-voice-name">Voz de Edge${d.voice.engine === "gemini" ? " (respaldo)" : ""}</label><select id="f-voice-name" data-path="voice.name"><option>${esc(d.voice.name)}</option></select><span class="help">Agrupadas por país; solo voces de ${esc((cfg.catalog.languages.find(([c]) => c === d.content.language) || ["", ""])[1].toLowerCase())}.</span></div>
       ${field("voice.rate", "Velocidad (Edge)", "select", { options: [["-10%", "Lenta"], ["+0%", "Normal"], ["+6%", "Ágil"], ["+12%", "Rápida"], ["+20%", "Muy rápida"]] })}
     </div>
     <div style="margin-top:12px">
@@ -783,7 +805,7 @@ function renderSettings() {
     </div>
     ${d.video.music ? `<div class="form-grid" style="margin-top:6px">
       ${field("video.music_source", "Origen de la música", "select", { options: [["generada", "Generada automáticamente (gratis, sin derechos de autor)"], ["lyria", "Lyria, IA de Google (de pago, ~US$0.04–0.08 por video)"], ["carpeta", "Mis archivos de assets/music"]], help: d.video.music_source === "carpeta" ? `Carpeta: <code>${esc(cfg.musicDir)}</code> — ${cfg.musicFiles.length ? `${cfg.musicFiles.length} archivo(s)` : "vacía: se usará la música generada"}.` : d.video.music_source === "lyria" ? "Usa tu Gemini API key; requiere activar la facturación en Google AI Studio. Si falla, se usa la generada." : "Compone acordes, bajo, arpegios y batería con la duración exacta del video." })}
-      ${field("video.music_volume", "Volumen de la música (0–1)", "number", { min: 0, max: 1, step: 0.01 })}
+      ${numSelect("video.music_volume", "Volumen de la música", [[0.06, "Muy bajo"], [0.09, "Bajo"], [0.12, "Normal"], [0.16, "Alto"], [0.2, "Muy alto"]], { help: "Baja sola cuando habla la voz." })}
     </div>` : ""}
     ${toggle("video.animations", "Animaciones (Remotion)", `Gráficos animados sobre algunas escenas: gancho en texto grande, listas, cifras, frases clave y cierre. La IA decide dónde van. ${cfg.motion.ok ? '<span style="color:var(--ok)">✓ Remotion listo.</span>' : `<span class="err-text">${esc(cfg.motion.msg)}</span>`}`)}
     ${d.video.animations ? `<div class="form-grid" style="margin-top:6px">${field("video.anim_color", "Color de resaltado", "color", { help: "Por defecto, el mismo amarillo de los subtítulos." })}</div>` : ""}
@@ -792,10 +814,14 @@ function renderSettings() {
     ${toggle("video.thumbnail", "Miniatura automática (YouTube)", "Para el video largo: la IA elige el mejor cuadro y Remotion le pone un texto llamativo. YouTube exige verificar el canal con tu teléfono para usar miniaturas personalizadas.")}
     <div class="form-grid" style="margin-top:6px">
       ${field("video.review", "Revisión de calidad con IA", "select", { options: [["auto", "Automática (Gemini gratis: imagen y audio; si no, Claude: imagen)"], ["gemini", "Solo Gemini (gratis)"], ["claude", "Solo Claude (de pago)"], ["off", "Desactivada"]], help: "Al terminar cada video, la IA mira cuadros y escucha el audio: clips sin relación, textos cortados, voz tapada por la música…" })}
-      ${field("video.review_min_score", "Nota mínima para aprobar (1–10)", "number", { min: 1, max: 10 })}
+      ${numSelect("video.review_min_score", "Nota mínima para aprobar", [[4, "4 de 10 (permisiva)"], [5, "5 de 10"], [6, "6 de 10 (recomendada)"], [7, "7 de 10"], [8, "8 de 10 (exigente)"]])}
     </div>
     ${toggle("video.review_block", "No publicar automáticamente videos reprobados", "Los puedes revisar y publicar a mano igual.")}
-    <h2 style="margin:22px 0 12px">Material visual</h2>
+  </div>
+
+  <div class="card" id="s-visual">
+    <div class="card-head"><h2>Material visual</h2></div>
+    <p class="card-desc">De dónde salen las imágenes de cada escena: clips de stock, video generado con IA o una mezcla de ambos.</p>
     ${radioCards("video.visual_provider", [
       ["pexels", "Clips reales de stock (Pixabay / Pexels)", "Gratis. Videos de stock elegidos escena por escena según el guion. Usa las claves que tengas guardadas."],
       ["fal", "Video generado con IA (fal.ai)", "De pago. Se combina con stock igual que la opción local, para pagar solo las escenas que lo necesitan."],
@@ -803,17 +829,17 @@ function renderSettings() {
     ])}
     ${d.video.visual_provider === "comfyui" ? `<div class="form-grid" style="margin-top:16px">
       ${field("video.ai_select", "Qué escenas van con IA", "select", { options: [["smart", "Mixto inteligente: IA solo donde hace falta, stock en lo genérico"], ["hook", "Las primeras tomas (el gancho)"], ["all", "Todas (muy lento o costoso)"]], help: "En modo mixto, el guion marca las escenas con el personaje o momentos concretos de la historia; paisajes, ciudades y objetos salen gratis de Pixabay/Pexels. Si el stock no tiene nada que encaje con una escena, esa escena también se genera con IA." })}
-      ${field("video.comfy_max_shots", "Máximo de tomas con IA por video", "number", { min: 0, max: 30, help: "Tope de tiempo o de costo. 0 = sin tope." })}
+      ${numSelect("video.comfy_max_shots", "Máximo de tomas con IA por video", [[0, "Sin tope"], [1, "1"], [2, "2"], [3, "3"], [4, "4"], [6, "6"], [8, "8"], [10, "10"], [15, "15"]], { help: "Tope de tiempo o de costo." })}
       ${field("video.fal_scope", "Usar IA en", "select", { options: [["shorts", "Solo Shorts (stock para el largo)"], ["all", "Shorts y video largo"]] })}
       ${field("video.comfy_resolution", "Resolución IA", "select", { options: [["480p", "480p (recomendada con 6–8 GB de VRAM)"], ["544p", "544p"], ["704p", "704p (nativa, pide 12 GB o más)"]], help: "Se escala al tamaño final del video." })}
-      ${field("video.comfy_segment_seconds", "Segundos por segmento IA", "number", { min: 2, max: 8 })}
+      ${numSelect("video.comfy_segment_seconds", "Segundos por segmento IA", [[3, "3 s"], [4, "4 s"], [5, "5 s (recomendado)"], [6, "6 s"]])}
       ${field("video.comfy_chain", "Continuidad", "select", { options: [["scene", "Encadenar dentro de cada escena (corte al cambiar)"], ["all", "Una sola cadena para todo el video"]], help: "Cada toma sigue desde el último cuadro de la anterior. Con una sola cadena el video es más continuo, pero tiende a alejarse de la narración." })}
-      ${field("video.comfy_director_min", "Nota mínima del director IA (1–10)", "number", { min: 1, max: 10, help: "Las imágenes clave con nota menor se repiten (hasta 3 intentos) y las tomas se regeneran una vez; se queda la mejor." })}
-      ${field("video.ai_style", "Estilo visual (opcional)", "text", { help: "Se agrega a cada escena, en inglés. Ej.: <code>cinematic, film grain, shallow depth of field</code> o <code>anime style, studio quality</code>." })}
-      ${field("video.comfy_steps", "Pasos de muestreo", "number", { min: 4, max: 50, help: "Más pasos = más detalle y más tiempo. 20 es el valor del modelo." })}
+      ${numSelect("video.comfy_director_min", "Nota mínima del director IA", [[4, "4 de 10 (permisivo)"], [5, "5 de 10"], [6, "6 de 10 (recomendado)"], [7, "7 de 10"], [8, "8 de 10 (exigente)"]], { help: "Las imágenes clave con nota menor se repiten (hasta 3 intentos) y las tomas se regeneran una vez; se queda la mejor." })}
+      ${choiceField("video.ai_style", "Estilo visual", cfg.catalog.visual_styles, { placeholder: "en inglés, p. ej. cinematic, film grain", help: "Se agrega a cada escena generada con IA. «Personalizado…» para escribir el tuyo (en inglés)." })}
+      ${numSelect("video.comfy_steps", "Pasos de muestreo", [[12, "12 (rápido, menos detalle)"], [16, "16"], [20, "20 (recomendado)"], [25, "25"], [30, "30 (más detalle, más lento)"]])}
       ${field("video.comfy_path", "Carpeta de ComfyUI portable", "text", { help: "Si ComfyUI está cerrado, el run lo abre y lo cierra al terminar (libera la memoria)." })}
       ${field("video.comfy_url", "Dirección de ComfyUI", "text", { help: "Otro PC de la red también sirve, p. ej. <code>http://192.168.1.50:8188</code>." })}
-      ${field("video.comfy_workflow", "Workflow", "text", { help: "En <code>agente/workflows/</code> o ruta completa. Formato API con marcadores {{prompt}}, {{width}}…" })}
+      ${choiceField("video.comfy_workflow", "Workflow", cfg.workflows.map((w) => [w, w]), { placeholder: "ruta completa a un .json", help: "Los de <code>agente/workflows/</code>; «Personalizado…» para uno propio en formato API con marcadores {{prompt}}, {{width}}…" })}
     </div>
     ${toggle("video.comfy_keyframes", "Imagen clave primero", "Cada escena empieza con una imagen (~1 min) que el director revisa y repite si no muestra la escena; luego se anima. Evita gastar 5-8 min en tomas de video que salen mal.")}
     ${toggle("video.comfy_director", "Director IA", "Tras cada toma, una IA con visión (Gemini gratis) compara dos cuadros con la narración y regenera la toma si se desvió. Cuesta más tiempo de GPU solo cuando regenera.")}
@@ -825,9 +851,9 @@ function renderSettings() {
     </div>` : ""}
     ${d.video.visual_provider === "fal" ? `<div class="form-grid" style="margin-top:16px">
       ${field("video.ai_select", "Qué escenas van con IA", "select", { options: [["smart", "Mixto inteligente: IA solo donde hace falta, stock en lo genérico"], ["hook", "Las primeras tomas (el gancho)"], ["all", "Todas (muy lento o costoso)"]], help: "En modo mixto, el guion marca las escenas con el personaje o momentos concretos de la historia; paisajes, ciudades y objetos salen gratis de Pixabay/Pexels. Si el stock no tiene nada que encaje con una escena, esa escena también se genera con IA." })}
-      ${field("video.comfy_max_shots", "Máximo de tomas con IA por video", "number", { min: 0, max: 30, help: "Tope de tiempo o de costo. 0 = sin tope." })}
+      ${numSelect("video.comfy_max_shots", "Máximo de tomas con IA por video", [[0, "Sin tope"], [1, "1"], [2, "2"], [3, "3"], [4, "4"], [6, "6"], [8, "8"], [10, "10"], [15, "15"]], { help: "Tope de tiempo o de costo." })}
       ${field("video.fal_scope", "Usar IA en", "select", { options: [["shorts", "Solo Shorts (stock para el largo)"], ["all", "Todo (costoso)"]] })}
-      ${field("video.fal_segment_seconds", "Segundos por segmento IA", "number", { min: 2, max: 10 })}
+      ${numSelect("video.fal_segment_seconds", "Segundos por segmento IA", [[3, "3 s"], [4, "4 s"], [5, "5 s (recomendado)"], [6, "6 s"], [8, "8 s"], [10, "10 s"]])}
       ${field("video.fal_t2v_model", "Modelo texto→video", "text", { help: "ID del modelo en fal.ai/models" })}
       ${field("video.fal_i2v_model", "Modelo imagen→video", "text", { help: "Recibe el último fotograma de la toma anterior" })}
       <div class="field full"><span class="help">⚠ Costo aproximado: cada segmento de ~5 s cuesta entre US$0.10 y US$0.50 según el modelo. Un Short de 45 s ≈ 9 segmentos. Si una toma falla, se usan clips de stock como respaldo.</span></div>
@@ -859,14 +885,14 @@ function renderSettings() {
     </div>` : ""}
     <div class="platform-block">
       ${toggle("publish.facebook", "Facebook", "Video largo como video de página y Shorts como Reels.")}
-      ${d.publish.facebook ? `<div class="form-grid">${field("publish.facebook_graph_version", "Versión de Graph API", "text", { help: "Ej. v24.0. Actualízala si Meta la deja obsoleta." })}</div>` : ""}
+      ${d.publish.facebook ? `<div class="form-grid">${choiceField("publish.facebook_graph_version", "Versión de Graph API", cfg.catalog.graph_versions.map((v) => [v, `${v} (recomendada)`]), { placeholder: "vNN.0, p. ej. v25.0", help: "Cámbiala solo si Meta avisa que esta versión quedó obsoleta." })}</div>` : ""}
     </div>
     <div class="platform-block">
       ${toggle("publish.instagram", "Instagram Reels", "Solo los Shorts. Usa el mismo token de página de Facebook; tu Instagram debe ser profesional y estar vinculado a la página.")}
     </div>
     <div class="form-grid" style="margin-top:16px">
-      ${field("metrics.min_age_hours", "Horas mínimas antes de medir un video", "number", { min: 6, max: 720 })}
-      ${field("metrics.exploration", "Exploración del aprendizaje (0–1)", "number", { min: 0, max: 1, step: 0.05, help: "Probabilidad de probar un gancho distinto al mejor." })}
+      ${numSelect("metrics.min_age_hours", "Medir un video después de", [[24, "1 día"], [48, "2 días (recomendado)"], [72, "3 días"], [168, "1 semana"]])}
+      ${numSelect("metrics.exploration", "Exploración del aprendizaje", [[0.1, "Baja: casi siempre el mejor gancho"], [0.2, "Media-baja"], [0.3, "Media (recomendada)"], [0.5, "Alta: prueba ganchos nuevos"]], { help: "Qué tan seguido prueba un gancho distinto al que mejor funciona." })}
     </div>
   </div>
 
@@ -893,9 +919,9 @@ function renderSettings() {
     <p class="card-desc">Cada run guarda tomas y audios intermedios que ocupan mucho. Se borran solos pasados unos días; los videos finales, miniaturas y guiones se conservan.</p>
     <div id="storageBox" class="muted small">Calculando…</div>
     <div class="form-grid" style="margin-top:12px">
-      ${field("storage.keep_work_days", "Borrar archivos de trabajo tras (días)", "number", { min: 1, max: 365 })}
-      ${field("storage.cache_max_gb", "Tope de la caché de clips (GB)", "number", { min: 1, max: 100 })}
-      ${field("storage.delete_videos_days", "Borrar videos finales tras (días)", "number", { min: 0, max: 3650, help: "0 = nunca." })}
+      ${numSelect("storage.keep_work_days", "Borrar archivos de trabajo después de", [[1, "1 día"], [3, "3 días"], [7, "7 días"], [14, "14 días"], [30, "30 días"]], { min: 1, max: 365 })}
+      ${numSelect("storage.cache_max_gb", "Tope de la caché de clips", [[2, "2 GB"], [5, "5 GB"], [10, "10 GB"], [20, "20 GB"], [50, "50 GB"]], { min: 1, max: 100 })}
+      ${numSelect("storage.delete_videos_days", "Borrar videos finales después de", [[0, "Nunca"], [30, "30 días"], [60, "60 días"], [90, "90 días"], [180, "180 días"], [365, "1 año"]])}
     </div>
     ${toggle("general.notify", "Aviso de Windows al terminar", "Una notificación cuando un run termina o falla (útil con la ejecución diaria).")}
   </div>`;
@@ -920,11 +946,41 @@ function renderSettings() {
 function renderVoiceSelect() {
   const sel = $("#f-voice-name");
   if (!sel || !cfg.voices.length) return;
+  const lang = cfg.draft.content.language;
+  const list = cfg.voices.filter((v) => v.locale.split("-")[0] === lang);
+  if (!list.length) return;
+  // si la voz guardada es de otro idioma, se cambia por la recomendada de este (evita narrar en el acento equivocado)
+  if (!list.some((v) => v.name === cfg.draft.voice.name)) {
+    const def = cfg.catalog.default_voice[lang];
+    cfg.draft.voice.name = list.some((v) => v.name === def) ? def : list[0].name;
+    updateSaveBar();
+  }
   const cur = cfg.draft.voice.name;
-  sel.innerHTML = cfg.voices.map((v) => `<option value="${esc(v.name)}" ${v.name === cur ? "selected" : ""}>${esc(v.name.replace(/Neural$/, ""))} · ${v.gender === "Female" ? "Mujer" : "Hombre"}</option>`).join("");
+  const groups = {};
+  list.forEach((v) => (groups[v.country] = groups[v.country] || []).push(v));
+  const langName = (cfg.catalog.languages.find(([c]) => c === lang) || ["", ""])[1];
+  sel.innerHTML = Object.keys(groups).sort((a, b) => a.localeCompare(b, "es")).map((country) =>
+    `<optgroup label="${esc(langName)} · ${esc(country)}">${groups[country].map((v) =>
+      `<option value="${esc(v.name)}" ${v.name === cur ? "selected" : ""}>${esc(v.label)} (${v.gender === "Female" ? "mujer" : "hombre"})</option>`).join("")}</optgroup>`).join("");
+}
+
+function ollamaPresets() {
+  const rec = [["qwen2.5:7b", "qwen2.5:7b (recomendado)"], ["qwen2.5:3b", "qwen2.5:3b (más rápido)"], ["llama3.2:3b", "llama3.2:3b"]];
+  const inst = cfg.ollamaModels.map((m) => [m, `${m} · instalado`]);
+  return [...inst, ...rec.filter(([m]) => !cfg.ollamaModels.includes(m))];
 }
 
 function bindSettingsInputs() {
+  $$("#settingsBody [data-choice]").forEach((el) => el.addEventListener("change", () => {
+    const path = el.dataset.choice;
+    if (el.value === CUSTOM) customOpen.add(path);
+    else { customOpen.delete(path); set(cfg.draft, path, el.value); }
+    updateSaveBar();
+    const y = window.scrollY;
+    renderSettings(); loadConnections(); loadSchedule();
+    window.scrollTo({ top: y });
+    if (el.value === CUSTOM) { const inp = $(`#settingsBody input[data-path="${path}"]`); if (inp) inp.focus(); }
+  }));
   $$("#settingsBody [data-path]").forEach((el) => {
     const evt = el.tagName === "SELECT" || el.type === "checkbox" || el.type === "radio" ? "change" : "input";
     el.addEventListener(evt, () => {
@@ -952,11 +1008,15 @@ function updateSaveBar() {
 }
 async function saveSettings(silent = false) {
   try {
-    const { settings } = await api("/api/settings", { method: "PUT", body: cfg.draft });
+    const { settings, fixes } = await api("/api/settings", { method: "PUT", body: cfg.draft });
     cfg.loaded = settings;
     cfg.draft = structuredClone(settings);
+    customOpen.clear();
     updateSaveBar();
-    if (!silent) toast("Configuración guardada", "ok");
+    if (fixes && fixes.length) {  // el servidor corrigió algo que habría fallado en un run
+      toast(`Guardado con ${fixes.length} corrección(es): ${fixes.join(" ")}`, "err");
+      renderSettings(); loadConnections(); loadSchedule();
+    } else if (!silent) toast("Configuración guardada", "ok");
     refreshState();
   } catch (e) { toast(e.message, "err"); }
 }

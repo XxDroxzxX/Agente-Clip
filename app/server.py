@@ -394,7 +394,21 @@ def get_settings():
             "redirect_uri": REDIRECT_URI, "music_dir": str(MUSIC_DIR),
             "music_files": sorted(p.name for p in MUSIC_DIR.glob("*") if p.is_file()),
             "motion": dict(zip(("ok", "msg"), motion.status())),
-            "gemini_voices": __import__("agente.tts", fromlist=["GEMINI_VOICES"]).GEMINI_VOICES}
+            "gemini_voices": __import__("agente.tts", fromlist=["GEMINI_VOICES"]).GEMINI_VOICES,
+            "catalog": __import__("agente.catalog", fromlist=["for_ui"]).for_ui(),
+            "workflows": sorted(p.name for p in (ROOT / "agente" / "workflows").glob("*.json"))}
+
+
+@app.get("/api/ollama-models")
+def ollama_models():
+    """Modelos ya instalados en Ollama (para elegirlos de una lista); vacío si Ollama no responde."""
+    import requests
+    try:
+        url = S.load()["llm"]["ollama_url"].rstrip("/")
+        tags = requests.get(f"{url}/api/tags", timeout=2).json().get("models", [])
+        return sorted(m["name"] for m in tags if m.get("name"))
+    except Exception:
+        return []
 
 
 @app.get("/api/storage")
@@ -414,7 +428,8 @@ def put_settings(body: dict = Body(...)):
     _cache.pop("ollama_up", None)
     _cache.pop("comfy_up", None)
     _cache.pop("fb_page", None)
-    return {"settings": S.save(body)}
+    saved, fixes = S.save(body)
+    return {"settings": saved, "fixes": fixes}
 
 
 @app.put("/api/secrets/{name}")
@@ -754,9 +769,11 @@ def voices():
         vs = asyncio.run(edge_tts.list_voices())
     except Exception:
         return []
-    lang = S.load()["content"]["language"]
-    out = sorted(({"name": v["ShortName"], "locale": v["Locale"], "gender": v["Gender"]}
-                  for v in vs if v["Locale"].startswith(lang + "-")), key=lambda v: v["name"])
+    from agente import catalog
+    out = sorted(({"name": v["ShortName"], "locale": v["Locale"], "gender": v["Gender"],
+                   "label": catalog.voice_label(v["ShortName"]), "country": catalog.locale_label(v["Locale"])}
+                  for v in vs if v["Locale"].split("-")[0] in catalog.LANGUAGES),
+                 key=lambda v: (v["country"], v["label"]))
     _cache["voices"] = (time.time(), out)
     return out
 

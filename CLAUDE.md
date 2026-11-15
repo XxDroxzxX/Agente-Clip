@@ -69,6 +69,10 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
 - `sfx.py`, `review.py` (Gemini mira 10 cuadros y escucha el audio; nota 1-10), `thumbnail.py`, `cleanup.py`,
   `notify.py` (toast de Windows), `learning.py` (bandido sobre ganchos + rasgos), `publish/` (youtube, tiktok, facebook, instagram).
 - `app/server.py` + `app/static/`: interfaz en tiempo real (SSE). Token de sesión y chequeo de Host.
+- `catalog.py`: listas cerradas (regiones de YouTube, voces por país, estilos visuales y de lectura, voces de Gemini).
+  `settings.validate` (al guardar) corrige enums, rangos, región (acepta USA→US), voz de otro idioma y versión de
+  Graph; la interfaz muestra los avisos. En la interfaz: `choiceField` (lista + «Personalizado…») y `numSelect`.
+  `util.redact` quita claves y tokens de todo lo que se escribe en `runs/` (antes un error 400 guardaba la key).
 - `publish/browser.py`: publicación por navegador (por defecto para YouTube y TikTok: `youtube_method`/`tiktok_method`
   = browser|api). Patchright + Chrome instalado, perfil persistente en `data/navegador/<plataforma>` (login visible una
   vez: `python -m agente.publish.browser login youtube`), subidas con ventana fuera de pantalla (`browser_visible`).

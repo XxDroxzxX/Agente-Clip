@@ -3,8 +3,25 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from pathlib import Path
+
+
+_SECRET_PATTERNS = [
+    (re.compile(r"((?:key|api_key|access_token|token|client_secret|refresh_token)=)[^&\s\"'<>]+", re.I), r"\1***"),
+    (re.compile(r"AIza[0-9A-Za-z_\-]{30,}"), "AIza***"),            # claves de Google
+    (re.compile(r"sk-ant-[0-9A-Za-z_\-]{10,}"), "sk-ant-***"),       # claves de Anthropic
+    (re.compile(r"\bEAA[0-9A-Za-z]{30,}"), "EAA***"),                # tokens de Facebook
+    (re.compile(r"(Bearer|OAuth|Key)\s+[0-9A-Za-z._\-]{20,}"), r"\1 ***"),
+]
+
+
+def redact(text: str) -> str:
+    """Quita claves y tokens de un texto (mensajes de error, registros): nunca deben quedar escritos en disco."""
+    for pat, rep in _SECRET_PATTERNS:
+        text = pat.sub(rep, text)
+    return text
 
 
 def atomic_write_text(path: Path, text: str) -> None:

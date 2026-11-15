@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .paths import RUNS_DIR
-from .util import read_json, write_json
+from .util import read_json, redact, write_json
 
 STEPS = [
     ("research", "Investigación de tendencias"),
@@ -67,11 +67,12 @@ class Run:
 
     # ── persistencia ───────────────────────────────────
     def _save(self):
+        self.state = json.loads(redact(json.dumps(self.state, ensure_ascii=False)))
         write_json(self.state_path, self.state)
 
     def _emit(self, ev: dict):
         ev = {"ts": time.time(), **ev}
-        line = json.dumps(ev, ensure_ascii=False)
+        line = redact(json.dumps(ev, ensure_ascii=False))
         with self._lock:
             with open(self.events_path, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
@@ -86,7 +87,7 @@ class Run:
 
     # ── logs ───────────────────────────────────────────
     def log(self, msg: str, level: str = "info", step: str | None = None):
-        print(f"[{level.upper()}] {msg}", flush=True)
+        print(redact(f"[{level.upper()}] {msg}"), flush=True)
         self._emit({"type": "log", "level": level, "msg": msg, "step": step})
 
     def info(self, msg, step=None):

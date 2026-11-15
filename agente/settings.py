@@ -141,6 +141,120 @@ def _merge(base: dict, override: dict) -> dict:
     return out
 
 
+# Reglas de validación: ruta → ("int"|"float", mín, máx) o ("enum", valores). Lo inválido vuelve al valor anterior
+# (o al de fábrica) y los números se ajustan al rango, para que un dato mal escrito no tumbe un run.
+RULES: dict[str, tuple] = {
+    "content.language": ("enum", ("es", "en", "pt")),
+    "content.research_days": ("int", 3, 180),
+    "llm.provider": ("enum", ("claude", "gemini", "ollama")),
+    "llm.claude_effort": ("enum", ("low", "medium", "high")),
+    "video.long_minutes": ("int", 1, 15),
+    "video.shorts_count": ("int", 0, 5),
+    "video.quality": ("enum", ("1080p", "720p")),
+    "video.visual_provider": ("enum", ("pexels", "fal", "comfyui")),
+    "video.fal_scope": ("enum", ("shorts", "all")),
+    "video.fal_segment_seconds": ("int", 2, 10),
+    "video.ai_select": ("enum", ("smart", "hook", "all")),
+    "video.comfy_resolution": ("enum", ("480p", "544p", "704p")),
+    "video.comfy_steps": ("int", 4, 50),
+    "video.comfy_fps": ("int", 8, 30),
+    "video.comfy_segment_seconds": ("int", 2, 8),
+    "video.comfy_max_shots": ("int", 0, 30),
+    "video.comfy_chain": ("enum", ("scene", "all")),
+    "video.comfy_director_min": ("int", 1, 10),
+    "video.comfy_timeout_min": ("int", 5, 120),
+    "video.music_volume": ("float", 0.0, 1.0),
+    "video.music_source": ("enum", ("generada", "lyria", "carpeta")),
+    "video.smart_clips": ("enum", ("auto", "gemini", "claude", "off")),
+    "video.review": ("enum", ("auto", "gemini", "claude", "off")),
+    "video.review_min_score": ("int", 1, 10),
+    "voice.engine": ("enum", ("edge", "gemini")),
+    "voice.rate": ("enum", ("-10%", "+0%", "+6%", "+12%", "+20%")),
+    "publish.youtube_method": ("enum", ("browser", "api")),
+    "publish.youtube_privacy": ("enum", ("private", "unlisted", "public")),
+    "publish.tiktok_method": ("enum", ("browser", "api")),
+    "publish.tiktok_mode": ("enum", ("inbox", "direct")),
+    "publish.tiktok_privacy": ("enum", ("SELF_ONLY", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "PUBLIC_TO_EVERYONE")),
+    "storage.keep_work_days": ("int", 1, 365),
+    "storage.cache_max_gb": ("int", 1, 200),
+    "storage.delete_videos_days": ("int", 0, 3650),
+    "metrics.min_age_hours": ("int", 6, 720),
+    "metrics.max_age_days": ("int", 1, 365),
+    "metrics.exploration": ("float", 0.0, 1.0),
+}
+
+
+def _get(d: dict, path: str):
+    for k in path.split("."):
+        d = d[k]
+    return d
+
+
+def _set(d: dict, path: str, v) -> None:
+    keys = path.split(".")
+    for k in keys[:-1]:
+        d = d[k]
+    d[keys[-1]] = v
+
+
+def validate(cfg: dict, prev: dict | None = None) -> tuple[dict, list[str]]:
+    """Corrige valores inválidos. Devuelve (config corregida, avisos en español para el usuario)."""
+    import re
+    from . import catalog
+    prev = prev or DEFAULTS
+    fixes: list[str] = []
+    for path, rule in RULES.items():
+        try:
+            v = _get(cfg, path)
+        except (KeyError, TypeError):
+            continue
+        fallback = _get(prev, path) if path.count(".") and _has(prev, path) else _get(DEFAULTS, path)
+        if rule[0] == "enum":
+            if v not in rule[1]:
+                _set(cfg, path, fallback)
+                fixes.append(f"«{v}» no es válido en {path}; se dejó «{fallback}».")
+            continue
+        cast = int if rule[0] == "int" else float
+        try:
+            n = cast(v)
+        except (TypeError, ValueError):
+            _set(cfg, path, fallback)
+            fixes.append(f"{path} no es un número; se dejó {fallback}.")
+            continue
+        lo, hi = rule[1], rule[2]
+        if n < lo or n > hi:
+            n = min(hi, max(lo, n))
+            fixes.append(f"{path} fuera de rango; se ajustó a {n}.")
+        _set(cfg, path, n)
+    c, v, p = cfg["content"], cfg["voice"], cfg["publish"]
+    region = (c.get("region_code") or "").strip().upper()
+    if region in catalog.ALPHA3:
+        fixes.append(f"Región «{region}» corregida a «{catalog.ALPHA3[region]}» (YouTube usa códigos de 2 letras).")
+        region = catalog.ALPHA3[region]
+    if region and region not in dict(catalog.REGIONS):
+        fixes.append(f"La región «{region}» no existe; se usa Global.")
+        region = ""
+    c["region_code"] = region
+    lang = c["language"]
+    if not str(v.get("name", "")).startswith(lang + "-"):
+        v["name"] = catalog.DEFAULT_VOICE[lang]
+        fixes.append(f"La voz no era de {catalog.LANGUAGES[lang].lower()}; se eligió {catalog.voice_label(v['name'])}.")
+    if v.get("gemini_voice") not in catalog.GEMINI_VOICE_INFO:
+        v["gemini_voice"] = DEFAULTS["voice"]["gemini_voice"]
+    if not re.fullmatch(r"v\d{2}\.0", str(p.get("facebook_graph_version", ""))):
+        fixes.append(f"Versión de Graph API «{p.get('facebook_graph_version')}» con formato inválido; se usa v24.0.")
+        p["facebook_graph_version"] = "v24.0"
+    return cfg, fixes
+
+
+def _has(d: dict, path: str) -> bool:
+    try:
+        _get(d, path)
+        return True
+    except (KeyError, TypeError):
+        return False
+
+
 def load() -> dict:
     data = {}
     if SETTINGS_FILE.is_file():
@@ -151,10 +265,12 @@ def load() -> dict:
     return _merge(DEFAULTS, data)
 
 
-def save(new: dict) -> dict:
-    merged = _merge(load(), new)
+def save(new: dict) -> tuple[dict, list[str]]:
+    """Guarda la configuración validada. Devuelve (config guardada, avisos de lo que se corrigió)."""
+    prev = load()
+    merged, fixes = validate(_merge(prev, new), prev)
     atomic_write_text(SETTINGS_FILE, json.dumps(merged, indent=2, ensure_ascii=False))
-    return merged
+    return merged, fixes
 
 
 # ── Secretos ──────────────────────────────────────────────────────────
