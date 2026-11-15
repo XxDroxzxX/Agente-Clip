@@ -350,6 +350,24 @@ def _tt_set_privacy(page, privacy: str) -> bool:
     return False
 
 
+def _tt_find_post(page, caption: str) -> str:
+    """Id de la publicación recién hecha. Se busca por su texto: un video anclado siempre aparece primero en la
+    lista, así que tomar el primer enlace daría el id de otro video."""
+    key = re.sub(r"\s+", " ", caption).strip()[:25]
+    for _ in range(10):
+        try:
+            for a in page.locator('a[href*="/video/"]').all()[:20]:
+                text = re.sub(r"\s+", " ", a.inner_text() or "").strip()
+                if text and (key.startswith(text[:25]) or text.startswith(key)):
+                    m = re.search(r"/video/(\d+)", a.get_attribute("href") or "")
+                    if m:
+                        return m.group(1)
+        except Exception:
+            pass
+        page.wait_for_timeout(3000)
+    return ""
+
+
 def upload_tiktok(video: Path, caption: str, privacy: str, on_progress: Callable[[float], None],
                   visible: bool = False, dry_run: bool = False) -> dict:
     """dry_run=True hace todo menos pulsar «Publicar» (para probar la conexión sin publicar nada)."""
@@ -415,13 +433,7 @@ def upload_tiktok(video: Path, caption: str, privacy: str, on_progress: Callable
             page.wait_for_url(re.compile(r"tiktokstudio/content"), timeout=90000)
         except Exception:
             _fail(page, "tiktok", "TikTok no confirmó la publicación.")
-        vid = ""
-        try:
-            href = page.locator('a[href*="/video/"]').first.get_attribute("href", timeout=15000) or ""
-            m = re.search(r"/video/(\d+)", href)
-            vid = m.group(1) if m else ""
-        except Exception:
-            pass
+        vid = _tt_find_post(page, caption)
     _save_status("tiktok", connected=True, error=None)
     on_progress(1.0)
     return {"platform_id": vid or f"tt-browser-{int(time.time())}", "url": "", "privacy": privacy,

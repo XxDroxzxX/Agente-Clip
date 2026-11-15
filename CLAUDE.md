@@ -74,7 +74,8 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   Basado en social-auto-upload (MIT). Verificado 2026-11-15: YouTube sube y publica en privado (27 s); TikTok
   Studio verificado en ensayo (`dry_run=True`): sigue el idioma de la cuenta (ignora `?lang=`), las cuentas nuevas
   muestran un tour (react-joyride) que tapa los clics (`_tt_dismiss_tour`), privacidad = combobox en
-  `video_visibility_container` con opciones «Todo el mundo / Amigos / Solo tú» (ya no hay «Seguidores»).
+  `video_visibility_container` con opciones «Todo el mundo / Amigos / Solo tú» (ya no hay «Seguidores»). Publicación
+  real «Solo yo» verificada (19 s). El id se busca por el texto (`_tt_find_post`): un video anclado sale primero.
 
 ## Cómo verificar (método acordado)
 
