@@ -67,17 +67,40 @@ class WorkflowTest(unittest.TestCase):
 class FakeAI:
     segment = 5.0
 
-    def __init__(self):
-        self.calls = []
+    def __init__(self, keyframes=False):
+        self.calls, self.keyframes = [], []
         self.released = False
+        if keyframes:
+            self.keyframe = self._keyframe
 
     def generate(self, prompt, start, dest, log, seconds=None):
         self.calls.append((prompt, start is not None, round(seconds, 2)))
         dest.write_bytes(b"video")
         return dest
 
+    def _keyframe(self, prompt, dest, log):
+        self.keyframes.append(prompt)
+        dest.write_bytes(b"png")
+        return dest
+
     def release(self):
         self.released = True
+
+
+class FakeDirector:
+    min = 6
+
+    def __init__(self, clips=(), images=()):
+        self.clips, self.images = iter(clips), iter(images)
+
+    def ok(self, v):
+        return v is None or v.score >= self.min
+
+    def clip(self, *a):
+        return next(self.clips, None)
+
+    def image(self, *a):
+        return next(self.images, None)
 
 
 def _fake_ffmpeg(calls):
@@ -143,20 +166,64 @@ class OrchestrationTest(unittest.TestCase):
         self.assertEqual(fake.calls[0][0], "p0. a black dog")  # la ficha visual va en cada prompt
         self.assertEqual([s.chained for s in shots], [False, True, False, True])
 
-    def test_director_regenerates_from_scratch(self):
+    def test_director_regenerates_and_keeps_best(self):
         fake = FakeAI()
         shots = [visuals.Shot(scene=0, duration=4.0, query="q", prompt=f"p{n}", bible="a black dog") for n in range(2)]
-        verdicts = iter([None, mock.Mock(score=3, issue="no se ve el perro", better_prompt="A black dog barks")])
-        judge = lambda *a: next(verdicts)
-        self._run(shots, _cfg(visual_provider="comfyui", comfy_max_shots=0), fake, judge)
-        # 2.a toma: encadenada, reprobada y regenerada desde el texto con el prompt corregido
+        bad = mock.Mock(score=3, issue="no se ve el perro", better_prompt="A black dog barks")
+        director = FakeDirector(clips=[None, bad, mock.Mock(score=8)])
+        self._run(shots, _cfg(visual_provider="comfyui", comfy_max_shots=0), fake, director)
+        # 2.a toma: encadenada, reprobada y regenerada sin cadena con el prompt corregido; la nueva es mejor
         self.assertEqual(fake.calls[1][:2], ("p1. a black dog", True))
         self.assertEqual(fake.calls[2][:2], ("A black dog barks. a black dog", False))
         self.assertFalse(shots[1].chained)
 
+    def test_director_keeps_first_if_retry_is_worse(self):
+        fake = FakeAI()
+        shots = [visuals.Shot(scene=0, duration=4.0, query="q", prompt="p")]
+        director = FakeDirector(clips=[mock.Mock(score=5, issue="x", better_prompt="b"), mock.Mock(score=2)])
+        self._run(shots, _cfg(visual_provider="comfyui", comfy_max_shots=0), fake, director)
+        self.assertEqual(len(fake.calls), 2)
+        self.assertEqual(fake.calls[1][0], "b")
+        self.assertTrue(shots[0].chained is False)
+
+    def test_keyframe_is_checked_before_animating(self):
+        fake = FakeAI(keyframes=True)
+        shots = [visuals.Shot(scene=s, duration=4.0, query="q", prompt=f"p{s}", bible="a black dog") for s in (0, 0, 1)]
+        bad = mock.Mock(score=2, issue="sin perro", better_prompt="A black dog on a sofa")
+        director = FakeDirector(images=[bad, None, None])
+        self._run(shots, _cfg(visual_provider="comfyui", comfy_max_shots=0), fake, director)
+        # escena 0: dos intentos de imagen clave, el 2.o con el prompt corregido; escena 1: uno
+        self.assertEqual(fake.keyframes, ["p0. a black dog", "A black dog on a sofa. a black dog", "p1. a black dog"])
+        # se anima desde la imagen clave (con el prompt aprobado); la 2.a toma sigue la cadena
+        self.assertEqual([c[:2] for c in fake.calls], [("A black dog on a sofa. a black dog", True),
+                                                       ("p0. a black dog", True), ("p1. a black dog", True)])
+        self.assertEqual([s.chained for s in shots], [False, True, False])
+
     def test_fal_uses_ai_on_every_shot(self):
         self.assertEqual(visuals.ai_shot_ids(self._shots(), _cfg(visual_provider="fal", comfy_max_shots=2)),
                          [0, 1, 2, 3, 4])
+
+
+class DirectorAnswerTest(unittest.TestCase):
+    """Gemini a veces se repite sin fin y el JSON llega cortado: se pregunta otra vez o se rescata la nota."""
+    BAD = '{\n  "score": 4,\n  "issue": "lugar ' + "y tétrica " * 300
+    GOOD = '{"score": 4, "issue": "sin conductor", "better_prompt": "Close-up of the driver"}'
+
+    def _judge(self, answers):
+        from agente import gemini, vision
+        with mock.patch.object(vision, "provider", return_value="gemini"), \
+                mock.patch.object(gemini, "generate", side_effect=[(a, "m") for a in answers]):
+            return vision.judge_shot(_cfg(), [], "n", "p", lambda *a: None)
+
+    def test_retries_cut_answer(self):
+        self.assertEqual(self._judge([self.BAD, self.GOOD]).better_prompt, "Close-up of the driver")
+
+    def test_salvages_score(self):
+        v = self._judge([self.BAD, self.BAD])
+        self.assertEqual((v.score, v.better_prompt), (4, ""))
+
+    def test_gives_up_without_score(self):
+        self.assertIsNone(self._judge(["{", "{"]))
 
 
 if __name__ == "__main__":

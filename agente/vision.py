@@ -84,8 +84,8 @@ def _ask(prov: str, cfg: dict, parts: list, orient: str, log) -> Ranking:
 
 # ── director de video IA ──────────────────────────────
 
-DIRECTOR_PROMPT = """Eres director de un video generado con IA para un canal sobre «{niche}». Verás dos cuadros
-(mitad y final) de una toma recién generada, la narración que la acompaña y el prompt que se usó.
+DIRECTOR_PROMPT = """Eres director de un video generado con IA para un canal sobre «{niche}». Verás una imagen clave
+o dos cuadros (mitad y final) de una toma recién generada, la narración que la acompaña y el prompt que se usó.
 Juzga si la toma muestra de forma reconocible lo que pide la escena: el sujeto principal debe verse y la acción o
 ambiente deben corresponder. No castigues el estilo artístico ni la oscuridad si el tema lo pide. Castiga: sujeto
 ausente o irreconocible, cuerpos deformes, objetos sin sentido, texto o marcas de agua, imagen degradada.
@@ -108,18 +108,22 @@ def judge_shot(cfg: dict, frames: list[Path], narration: str, prompt: str, log) 
     parts: list = [f"NARRACIÓN: «{narration}»", f"PROMPT USADO: {prompt}"]
     for n, f in enumerate(frames):
         parts += [f"Cuadro {n + 1}", f]
-    try:
-        return _call(prov, cfg, DIRECTOR_PROMPT.format(niche=cfg["content"]["niche"]), parts, Verdict, log, 800)
-    except ValidationError as e:
-        # respuesta cortada (p. ej. el modelo se repite sin fin): basta con la nota para decidir
-        m = re.search(r'"score"\s*:\s*(\d+)', str(e))
-        if m:
-            return Verdict(score=int(m.group(1)), issue="respuesta del director incompleta")
-        log("Director IA no disponible para esta toma (respuesta inválida); se acepta tal cual.", "warn")
-        return None
-    except Exception as e:
-        log(f"Director IA no disponible para esta toma ({e}); se acepta tal cual.", "warn")
-        return None
+    system = DIRECTOR_PROMPT.format(niche=cfg["content"]["niche"])
+    salvaged: Verdict | None = None
+    for attempt in range(2):  # Gemini a veces entra en bucle y la respuesta llega cortada: se pregunta otra vez
+        try:
+            return _call(prov, cfg, system, parts, Verdict, log, 4000)  # tope alto: el razonamiento también cuenta
+        except ValidationError as e:
+            m = re.search(r'"score"\s*:\s*(\d+)', str(e))
+            if m and salvaged is None:  # al menos la nota basta para decidir
+                salvaged = Verdict(score=int(m.group(1)), issue="respuesta del director incompleta")
+            err = str(e)[:160]
+        except Exception as e:
+            log(f"Director IA no disponible para esta toma ({e}); se acepta tal cual.", "warn")
+            return None
+    if salvaged is None:
+        log(f"Director IA no disponible para esta toma (respuesta inválida: {err}); se acepta tal cual.", "warn")
+    return salvaged
 
 
 def rank_scenes(cfg: dict, scenes: list[dict], portrait: bool,

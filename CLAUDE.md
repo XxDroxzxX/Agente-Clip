@@ -101,6 +101,11 @@ Objetivo del usuario: video de calidad profesional tipo cine o anime generado **
   Run 2026-11-14 (Short de 33 s, todo IA): 81 min, 3 tomas regeneradas, revisión 8/10; el mismo personaje se ve
   en todo el video y sigue la historia. Gemini a veces entra en bucle repitiendo palabras: por eso
   `gemini.generate(max_tokens=…)` (`max_output_tokens`) y `judge_shot` rescata la nota de un JSON cortado.
+- **Imagen clave primero** (`comfy_keyframes`, por defecto activo): cada arranque de cadena genera 1 cuadro con el
+  mismo Wan (`ComfyVideo.keyframe`, length=1, ~1 min frente a 5-8 min de una toma), el director lo revisa (hasta 3
+  intentos con `better_prompt`, se queda la mejor) y luego se anima con imagen→video. Si una toma de video reprueba,
+  se regenera una vez y el director compara ambas versiones (se queda la de mejor nota). ComfyUI queda abierto entre
+  los videos del run (`fetch_for_item(release=False)` + `visuals.release_ai` al final del paso visual).
 - Modo mixto (`comfy_max_shots`, por defecto 2): IA en las primeras tomas (el gancho) y stock con visión en el resto
   (`visuals.fetch_for_item`). La cadena de fotogramas solo sigue entre tomas IA consecutivas. Si `comfy_path` está
   configurado y ComfyUI está cerrado, el run lo abre y lo cierra al terminar; si ya estaba abierto, solo pide `/free`.

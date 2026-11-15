@@ -103,6 +103,8 @@ def step_voice(run: Run, cfg: dict, items) -> dict:
     total = sum(len(p.scenes) for _, p, _ in items)
     done = 0
     audio = {}
+    import threading
+    lock = threading.Lock()
 
     def synth_all(key, plan, d, eng):
         nonlocal done
@@ -112,8 +114,9 @@ def step_voice(run: Run, cfg: dict, items) -> dict:
             nonlocal done
             i, sc = i_sc
             r = tts.synthesize_scene(sc.narration, vc, d, i, engine=eng)
-            done += 1
-            run.step_progress("voice", min(1.0, done / total), f"{key}: {done}/{total} escenas")
+            with lock:  # varias escenas terminan a la vez
+                done += 1
+                run.step_progress("voice", min(1.0, done / total), f"{key}: {done}/{total} escenas")
             return r
 
         with ThreadPoolExecutor(workers) as ex:
@@ -171,7 +174,8 @@ def step_visuals(run: Run, cfg: dict, items, audio) -> dict:
             def log(msg, level="info"):
                 run.log(msg, level, "visuals")
 
-            visuals.fetch_for_item(shots, portrait, min(W, H), cfg, use_ai, src_dir, log, prog, broll)
+            visuals.fetch_for_item(shots, portrait, min(W, H), cfg, use_ai, src_dir, log, prog, broll,
+                                   release=False)  # ComfyUI sigue cargado para el siguiente video
             if v.get("transitions", True):
                 for j, sh in enumerate(shots):
                     prev = shots[j - 1] if j > 0 else None
@@ -201,6 +205,11 @@ def step_visuals(run: Run, cfg: dict, items, audio) -> dict:
         run.error(f"Error preparando el material visual: {e}", "visuals")
         run.step_end("visuals", "failed", str(e))
         raise StepFailed(str(e))
+    finally:
+        try:
+            visuals.release_ai(cfg)  # libera la GPU (cierra ComfyUI si el run lo abrió)
+        except Exception:
+            pass
     run.step_end("visuals", "done", f"{sum(len(x) for x in all_shots.values())} tomas")
     return all_shots
 

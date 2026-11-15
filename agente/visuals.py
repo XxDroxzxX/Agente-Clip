@@ -491,10 +491,10 @@ def ai_prompt(shot: Shot) -> str:
     return f"{shot.prompt.rstrip('. ')}. {shot.bible}".strip() if shot.bible else shot.prompt
 
 
-def _make_segment(ai, prompt: str, start: Path | None, dest: Path, seconds: float, log) -> None:
+def _make_segment(ai, prompt: str, start: Path | None, dest: Path, seconds: float, log, trim: bool = True) -> None:
     raw = dest.with_name(dest.stem + "_raw.mp4")
     ai.generate(prompt, start, raw, lambda m: log(m, "info"), seconds=seconds)
-    if start is not None:
+    if start is not None and trim:
         # el 1.er cuadro repite el último de la toma anterior: se quita para que el empalme no se congele
         ffmpeg.run(["-i", raw, "-vf", "trim=start_frame=1,setpts=PTS-STARTPTS", "-an",
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p", dest])
@@ -503,51 +503,128 @@ def _make_segment(ai, prompt: str, start: Path | None, dest: Path, seconds: floa
         raw.replace(dest)
 
 
-def _director(cfg: dict, log) -> Callable | None:
-    """Revisor con visión de cada segmento IA (si está activado y hay proveedor)."""
+class Director:
+    """Revisor con visión de las tomas IA: puntúa imágenes clave y segmentos contra la narración."""
+
+    def __init__(self, cfg: dict, log):
+        self.cfg, self.log = cfg, log
+        self.min = int(cfg["video"].get("comfy_director_min", 6))
+
+    def ok(self, verdict) -> bool:
+        return verdict is None or verdict.score >= self.min
+
+    def image(self, shot: Shot, image: Path, prompt: str):
+        from . import vision
+        small = ffmpeg.extract_frame(image, image.with_name(image.stem + "_s.jpg"), width=384)
+        try:
+            return vision.judge_shot(self.cfg, [small], shot.text, prompt, self.log)
+        finally:
+            small.unlink(missing_ok=True)
+
+    def clip(self, shot: Shot, clip: Path, seconds: float, prompt: str):
+        from . import vision
+        frames = [ffmpeg.extract_frame(clip, clip.with_name(clip.stem + "_mid.jpg"), at=seconds / 2, width=384),
+                  ffmpeg.extract_frame(clip, clip.with_name(clip.stem + "_end.jpg"), last=True, width=384)]
+        try:
+            return vision.judge_shot(self.cfg, frames, shot.text, prompt, self.log)
+        finally:
+            for f in frames:
+                f.unlink(missing_ok=True)
+
+
+def _director(cfg: dict, log) -> Director | None:
+    """Director IA si está activado, el proveedor es local (regenerar no cuesta dinero) y hay IA con visión."""
     from . import vision
     v = cfg["video"]
     if v["visual_provider"] != "comfyui" or not v.get("comfy_director", True) or not vision.provider(cfg):
         return None
-    min_score = int(v.get("comfy_director_min", 6))
+    return Director(cfg, log)
 
-    def judge(shot: Shot, clip: Path, seconds: float, prompt: str):
-        frames = [ffmpeg.extract_frame(clip, clip.with_name(clip.stem + "_mid.jpg"), at=seconds / 2, width=384),
-                  ffmpeg.extract_frame(clip, clip.with_name(clip.stem + "_end.jpg"), last=True, width=384)]
-        verdict = vision.judge_shot(cfg, frames, shot.text, prompt, log)
-        for f in frames:
-            f.unlink(missing_ok=True)
-        if verdict is None or verdict.score >= min_score:
-            return None
-        return verdict
-    return judge
+
+KEYFRAME_TRIES = 3  # imagen clave: original + 2 intentos con el prompt corregido (~1 min cada uno)
+
+
+def _better(verdict, shot: Shot, prompt: str) -> str:
+    bp = (getattr(verdict, "better_prompt", "") or "").strip()
+    return (f"{bp.rstrip('. ')}. {shot.bible}" if shot.bible else bp) if bp else prompt
+
+
+def _keyframe(ai, shot: Shot, i: int, k: int, prompt: str, out_dir: Path, log, director: Director | None):
+    """Imagen clave aprobada por el director (o la mejor de los intentos). Devuelve (png, prompt)."""
+    dest = out_dir / f"key_{i:03d}_{k}.png"
+    if dest.is_file() and dest.stat().st_size > 0:
+        return dest, prompt
+    best: tuple[int, Path, str] | None = None
+    for t in range(KEYFRAME_TRIES if director else 1):
+        cand = out_dir / f"key_{i:03d}_{k}_t{t}.png"
+        log(f"IA: imagen clave de la toma {i+1}.{k+1}" + (f" (intento {t+1})" if t else ""), "info")
+        ai.keyframe(prompt, cand, lambda m: log(m, "info"))
+        verdict = director.image(shot, cand, prompt) if director else None
+        score = 10 if verdict is None else verdict.score
+        if best is None or score > best[0]:
+            best = (score, cand, prompt)
+        if director is None or director.ok(verdict):
+            break
+        last = t == KEYFRAME_TRIES - 1
+        log(f"Director IA: imagen clave {i+1}.{k+1} con nota {score}/10 ({verdict.issue}); "
+            + ("se usa la mejor de los intentos." if last else "se intenta otra."), "warn")
+        prompt = _better(verdict, shot, prompt)
+    score, cand, prompt = best
+    cand.replace(dest)
+    for f in out_dir.glob(f"key_{i:03d}_{k}_t*.png"):
+        f.unlink(missing_ok=True)
+    return dest, prompt
 
 
 def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
-                 log: Callable[[str, str], None], judge: Callable | None = None) -> Path:
-    """Genera una toma (en uno o más segmentos encadenados) y devuelve el último segmento."""
+                 log: Callable[[str, str], None], director: Director | None = None,
+                 keyframes: bool = False) -> Path:
+    """Genera una toma (en uno o más segmentos encadenados) y devuelve el último segmento.
+
+    Con imágenes clave, cada arranque de cadena parte de una imagen revisada por el director: los reintentos
+    cuestan ~1 min en lugar de los 5-8 min de una toma de video."""
     parts = max(1, math.ceil(shot.duration / ai.segment - 0.15))  # tolera tomas apenas más largas que un segmento
     seconds = shot.duration / parts
     prompt = ai_prompt(shot)
+    keyframes = keyframes and hasattr(ai, "keyframe")
     shot.chained = prev_clip is not None
     clips = []
+
+    def fresh_start(k: int, p: str):
+        """Arranque sin cadena: imagen clave aprobada (si se puede) o solo texto. Devuelve (imagen|None, prompt)."""
+        return _keyframe(ai, shot, i, k, p, out_dir, log, director) if keyframes else (None, p)
+
     for k in range(parts):
         dest = out_dir / f"ai_{i:03d}_{k}.mp4"
         if dest.is_file() and dest.stat().st_size > 0:  # «Reintentar» reutiliza lo ya generado
             log(f"IA: toma {i+1}.{k+1} reutilizada.", "info")
         else:
-            start = last_frame(prev_clip, out_dir / f"frame_{i:03d}_{k}.png") if prev_clip is not None else None
-            log(f"IA: generando toma {i+1}.{k+1} {'desde el último fotograma' if start else 'inicial'}", "info")
-            _make_segment(ai, prompt, start, dest, seconds, log)
-            bad = judge(shot, dest, seconds, prompt) if judge else None
-            if bad is not None:
-                # se desvió de la escena: una sola regeneración, desde cero y con el prompt corregido
-                log(f"Director IA: toma {i+1}.{k+1} con nota {bad.score}/10 ({bad.issue}); se regenera desde cero.", "warn")
-                if bad.better_prompt.strip():
-                    prompt = f"{bad.better_prompt.strip().rstrip('. ')}. {shot.bible}".strip()
-                _make_segment(ai, prompt, None, dest, seconds, log)
-                if k == 0:
-                    shot.chained = False
+            if prev_clip is not None:
+                start, link = last_frame(prev_clip, out_dir / f"frame_{i:03d}_{k}.png"), True
+            else:
+                (start, prompt), link = fresh_start(k, prompt), False
+            log(f"IA: generando toma {i+1}.{k+1} "
+                + ("desde el último fotograma" if link else "desde la imagen clave" if start else "desde el texto"), "info")
+            _make_segment(ai, prompt, start, dest, seconds, log, trim=link)
+            verdict = director.clip(shot, dest, seconds, prompt) if director else None
+            if director and not director.ok(verdict):
+                # se desvió de la escena: una regeneración sin cadena, con el prompt corregido; queda la mejor
+                log(f"Director IA: toma {i+1}.{k+1} con nota {verdict.score}/10 ({verdict.issue}); se regenera.", "warn")
+                alt = dest.with_name(dest.stem + "_alt.mp4")
+                start2, prompt2 = fresh_start(k, _better(verdict, shot, prompt))
+                if start2 is not None and start2 == start:  # la imagen clave ya estaba aprobada: se re-anima
+                    log("La imagen clave se mantiene; se anima de nuevo con el prompt corregido.", "info")
+                _make_segment(ai, prompt2, start2, alt, seconds, log, trim=False)
+                v2 = director.clip(shot, alt, seconds, prompt2)
+                if v2 is None or v2.score >= verdict.score:
+                    alt.replace(dest)
+                    prompt = prompt2
+                    if k == 0:
+                        shot.chained = False
+                    log(f"Director IA: se usa la versión nueva ({v2.score if v2 else '?'}/10).", "info")
+                else:
+                    alt.unlink(missing_ok=True)
+                    log(f"Director IA: la versión nueva salió peor ({v2.score}/10); se conserva la primera.", "info")
         clips.append(dest)
         prev_clip = dest
     if len(clips) == 1:
@@ -563,10 +640,18 @@ def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
     return prev_clip
 
 
+def release_ai(cfg: dict) -> None:
+    """Libera la GPU al terminar el paso visual (ComfyUI queda abierto entre videos del mismo run)."""
+    if cfg["video"]["visual_provider"] == "comfyui":
+        from . import comfyui
+        comfyui.shutdown(cfg["video"].get("comfy_url") or "http://127.0.0.1:8188")
+
+
 def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, use_ai: bool,
                    out_dir: Path, log: Callable[[str, str], None], progress: Callable[[float], None],
-                   broll: list[str] | tuple = ()):
-    """Asigna material a cada toma. Modifica `shots` en el lugar (la selección de stock puede fundir tomas)."""
+                   broll: list[str] | tuple = (), release: bool = True):
+    """Asigna material a cada toma. Modifica `shots` en el lugar (la selección de stock puede fundir tomas).
+    release=False deja ComfyUI cargado para el siguiente video (quien llama debe usar release_ai al final)."""
     stock = stock_sources(portrait, min_side)
     ai = ai_provider(cfg, portrait, log) if use_ai else None
     if not stock and not ai:
@@ -584,10 +669,12 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
     if not ai:
         return shots
 
+    v = cfg["video"]
     log(f"IA: {len(ai_idx)} toma(s) con video generado"
         + (f"; {len(shots) - len(ai_idx)} con clips de stock." if len(shots) > len(ai_idx) else "."), "info")
-    by_scene = cfg["video"].get("comfy_chain", "scene") == "scene" and cfg["video"]["visual_provider"] == "comfyui"
-    judge = _director(cfg, log)
+    by_scene = v.get("comfy_chain", "scene") == "scene" and v["visual_provider"] == "comfyui"
+    keyframes = bool(v.get("comfy_keyframes", True)) and v["visual_provider"] == "comfyui"
+    director = _director(cfg, log)
     prev_clip: Path | None = None
     prev_scene: int | None = None
     done = 0
@@ -601,7 +688,7 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
                 prev_clip = None  # escena nueva: arranca desde el texto (corte), así vuelve a seguir la narración
             prev_scene = shot.scene
             try:
-                prev_clip = _generate_ai(ai, shot, i, prev_clip, out_dir, log, judge)
+                prev_clip = _generate_ai(ai, shot, i, prev_clip, out_dir, log, director, keyframes)
             except Exception as e:
                 log(f"Toma {i+1}: {e}. Se usa respaldo.", "warn")
                 prev_clip = None  # reinicia la cadena
@@ -612,7 +699,6 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
             done += 1
             progress(share + (1 - share) * done / len(ai_idx))
     finally:
-        release = getattr(ai, "release", None)
         if release:
-            release()
+            getattr(ai, "release", lambda: None)()
     return shots

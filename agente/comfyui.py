@@ -98,6 +98,26 @@ def explain_error(body: dict | str) -> str:
     return f"ComfyUI rechazó el workflow: {text[:400]}"
 
 
+_PROC: subprocess.Popen | None = None  # ComfyUI abierto por este proceso (se comparte entre videos del run)
+
+
+def shutdown(url: str = "http://127.0.0.1:8188") -> None:
+    """Libera la GPU al terminar: cierra ComfyUI si lo abrimos nosotros o le pide descargar los modelos."""
+    global _PROC
+    if _PROC is not None:
+        _PROC.terminate()
+        try:
+            _PROC.wait(20)
+        except subprocess.TimeoutExpired:
+            _PROC.kill()
+        _PROC = None
+        return
+    try:
+        requests.post(f"{url.rstrip('/')}/free", json={"unload_models": True, "free_memory": True}, timeout=10)
+    except requests.RequestException:
+        pass
+
+
 class ComfyVideo:
     def __init__(self, cfg: dict, portrait: bool):
         v = cfg["video"]
@@ -112,7 +132,6 @@ class ComfyVideo:
         self.timeout = float(v.get("comfy_timeout_min", 30)) * 60
         self.path = (v.get("comfy_path") or "").strip()
         self.client_id = uuid.uuid4().hex
-        self.proc: subprocess.Popen | None = None
         if not self.wf_file.is_file():
             raise RuntimeError(f"No se encontró el workflow de ComfyUI: {self.wf_file}")
         self.template = json.loads(self.wf_file.read_text(encoding="utf-8"))
@@ -136,14 +155,15 @@ class ComfyVideo:
                                "en Configuración → Material visual para que se inicie solo.")
         port = re.search(r":(\d+)", self.url.split("//", 1)[-1])
         log("Iniciando ComfyUI (la primera vez tarda 1-2 minutos)…")
+        global _PROC
         logf = open(DATA_DIR / "comfyui.log", "ab")
-        self.proc = subprocess.Popen(
+        _PROC = subprocess.Popen(
             [str(exe), "-s", str(main), "--windows-standalone-build", "--disable-auto-launch",
              "--listen", "127.0.0.1", "--port", port.group(1) if port else "8188"],
             cwd=self.path, stdout=logf, stderr=subprocess.STDOUT, creationflags=0x08000000)
         t0 = time.time()
         while time.time() - t0 < 240:
-            if self.proc.poll() is not None:
+            if _PROC.poll() is not None:
                 raise RuntimeError("ComfyUI se cerró al iniciar; revisa data/comfyui.log.")
             if self.alive():
                 return
@@ -151,19 +171,7 @@ class ComfyVideo:
         raise RuntimeError("ComfyUI no terminó de iniciar en 4 minutos; revisa data/comfyui.log.")
 
     def release(self) -> None:
-        """Libera la memoria al terminar: cierra ComfyUI si lo abrimos nosotros o le pide descargar los modelos."""
-        if self.proc is not None:
-            self.proc.terminate()
-            try:
-                self.proc.wait(20)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-            self.proc = None
-            return
-        try:
-            requests.post(f"{self.url}/free", json={"unload_models": True, "free_memory": True}, timeout=10)
-        except requests.RequestException:
-            pass
+        shutdown(self.url)
 
     def interrupt(self) -> None:
         try:
@@ -173,14 +181,15 @@ class ComfyVideo:
 
     # ── generación ────────────────────────────────────
 
-    def build(self, prompt: str, image_name: str | None, seconds: float, seed: int | None = None) -> dict:
+    def build(self, prompt: str, image_name: str | None, seconds: float, seed: int | None = None,
+              frames: int | None = None) -> dict:
         wf = self.template if image_name else drop_nodes_with(self.template, "start_image")
         if self.style:
             prompt = f"{prompt.rstrip('. ')}. {self.style}"
         return fill(wf, {
             "prompt": prompt, "seed": seed if seed is not None else random.randint(1, 2**48),
             "width": self.width, "height": self.height, "fps": self.fps, "steps": self.steps,
-            "frames": frames_for(seconds, self.fps), "start_image": image_name or "",
+            "frames": frames or frames_for(seconds, self.fps), "start_image": image_name or "",
         })
 
     def _upload(self, image: Path) -> str:
@@ -234,9 +243,22 @@ class ComfyVideo:
     def generate(self, prompt: str, start_frame: Path | None, dest: Path, log: Callable[[str], None],
                  seconds: float | None = None) -> Path:
         image = self._upload(start_frame) if start_frame is not None else None
-        pid = self._queue(self.build(prompt, image, seconds or self.segment))
         t0 = time.time()
-        out = self.find_video(self._wait(pid, log))
+        self._fetch(self.build(prompt, image, seconds or self.segment), dest, log)
+        log(f"Toma IA lista en {(time.time() - t0) / 60:.1f} min.")
+        return dest
+
+    def keyframe(self, prompt: str, dest: Path, log: Callable[[str], None]) -> Path:
+        """Imagen clave (un solo cuadro, ~1 min): se revisa antes de gastar minutos de GPU en animarla."""
+        from . import ffmpeg
+        clip = dest.with_suffix(".mp4")
+        self._fetch(self.build(prompt, None, 0, frames=1), clip, log)
+        ffmpeg.run(["-i", clip, "-frames:v", "1", dest])
+        clip.unlink(missing_ok=True)
+        return dest
+
+    def _fetch(self, wf: dict, dest: Path, log: Callable[[str], None]) -> None:
+        out = self.find_video(self._wait(self._queue(wf), log))
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(dest.suffix + ".part")
         with requests.get(f"{self.url}/view", params={"filename": out["filename"], "subfolder": out.get("subfolder", ""),
@@ -246,8 +268,6 @@ class ComfyVideo:
                 for chunk in r.iter_content(1 << 20):
                     f.write(chunk)
         tmp.replace(dest)
-        log(f"Toma IA lista en {(time.time() - t0) / 60:.1f} min.")
-        return dest
 
 
 def check(url: str) -> tuple[bool, str]:

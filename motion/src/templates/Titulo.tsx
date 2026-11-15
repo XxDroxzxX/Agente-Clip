@@ -45,8 +45,12 @@ export const Titulo: React.FC<OverlayProps> = ({ headline, highlight, accent, wo
                   display: "inline-block",
                   opacity: Math.min(1, t * 1.4),
                   transform: `translateY(${(1 - t) * size * 0.55}px) scale(${0.55 + 0.45 * t}) rotate(${(1 - t) * (i % 2 ? 6 : -6)}deg)`,
-                  color: hl ? INK : "#fff",
-                  textShadow: hl ? "none" : textShadow(u),
+                  // la palabra clave sigue blanca hasta que el marcador la cubre: sobre un fondo oscuro
+                  // el texto oscuro sin marcador sería invisible durante la entrada
+                  color: hl && sweep > 0.6 ? INK : "#fff",
+                  textShadow: hl && sweep > 0.6 ? "none" : textShadow(u),
+                  WebkitTextStroke: hl && sweep > 0.6 ? undefined : `${u * 0.18}px ${INK}`,
+                  paintOrder: "stroke fill",
                   padding: hl ? `0 ${size * 0.12}px` : 0,
                 }}
               >
