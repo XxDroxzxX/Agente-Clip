@@ -66,6 +66,12 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
 - `sfx.py`, `review.py` (Gemini mira 10 cuadros y escucha el audio; nota 1-10), `thumbnail.py`, `cleanup.py`,
   `notify.py` (toast de Windows), `learning.py` (bandido sobre ganchos + rasgos), `publish/` (youtube, tiktok, facebook, instagram).
 - `app/server.py` + `app/static/`: interfaz en tiempo real (SSE). Token de sesión y chequeo de Host.
+- `publish/browser.py`: publicación por navegador (por defecto para YouTube y TikTok: `youtube_method`/`tiktok_method`
+  = browser|api). Patchright + Chrome instalado, perfil persistente en `data/navegador/<plataforma>` (login visible una
+  vez: `python -m agente.publish.browser login youtube`), subidas con ventana fuera de pantalla (`browser_visible`).
+  Motivo: la Data API sin auditoría deja los videos en privado y TikTok sin auditoría solo «Solo yo». Selectores por
+  atributos (interfaz en español), verificación de privacidad antes de publicar, captura en `data/navegador/errores/`.
+  Basado en social-auto-upload (MIT). Los selectores de TikTok Studio no están verificados con una cuenta real todavía.
 
 ## Cómo verificar (método acordado)
 

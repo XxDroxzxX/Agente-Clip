@@ -711,6 +711,9 @@ function radioCards(path, options) {
     <input type="radio" name="${path}" data-path="${path}" value="${esc(val)}" ${v === val ? "checked" : ""}><div><b>${esc(title)}</b><span>${desc}</span></div></label>`).join("")}</div>`;
 }
 
+// listas que muestran u ocultan otras opciones al cambiar
+const RERENDER = ["publish.youtube_method", "publish.tiktok_method", "video.ai_select"];
+
 function renderSettings() {
   const d = cfg.draft;
   const body = $("#settingsBody");
@@ -837,17 +840,23 @@ function renderSettings() {
     <div class="platform-block" style="margin-top:12px">
       ${toggle("publish.youtube", "YouTube", "Video largo + Shorts.")}
       ${d.publish.youtube ? `<div class="form-grid">
-        ${field("publish.youtube_privacy", "Privacidad", "select", { options: [["private", "Privado"], ["unlisted", "No listado"], ["public", "Público"]], help: "Los proyectos de API sin auditoría de Google solo pueden subir en privado." })}
-        ${field("publish.youtube_category", "Categoría", "select", { options: [["26", "Consejos y estilo"], ["22", "Personas y blogs"], ["27", "Educación"], ["24", "Entretenimiento"], ["28", "Ciencia y tecnología"], ["19", "Viajes y eventos"]] })}
+        ${field("publish.youtube_method", "Cómo se conecta", "select", { options: [["browser", "Navegador: tu sesión de YouTube Studio (recomendado)"], ["api", "API de Google (sin auditoría sube en privado)"]], help: "Con el navegador no hace falta crear un proyecto en Google Cloud y los videos pueden salir públicos." })}
+        ${field("publish.youtube_privacy", "Privacidad", "select", { options: [["private", "Privado"], ["unlisted", "No listado"], ["public", "Público"]], help: d.publish.youtube_method === "api" ? "Los proyectos de API sin auditoría de Google solo pueden subir en privado." : "" })}
+        ${d.publish.youtube_method === "api" ? field("publish.youtube_category", "Categoría", "select", { options: [["26", "Consejos y estilo"], ["22", "Personas y blogs"], ["27", "Educación"], ["24", "Entretenimiento"], ["28", "Ciencia y tecnología"], ["19", "Viajes y eventos"]] }) : ""}
       </div>` : ""}
     </div>
     <div class="platform-block">
       ${toggle("publish.tiktok", "TikTok", "Solo los Shorts verticales.")}
       ${d.publish.tiktok ? `<div class="form-grid">
-        ${field("publish.tiktok_mode", "Modo", "select", { options: [["inbox", "Enviar a borradores (terminas en la app)"], ["direct", "Publicación directa"]] })}
+        ${field("publish.tiktok_method", "Cómo se conecta", "select", { options: [["browser", "Navegador: tu sesión de TikTok Studio (recomendado)"], ["api", "API de TikTok (sin auditoría: privado o borrador)"]], help: "Con el navegador no hace falta una app de desarrollador y se puede publicar en público." })}
+        ${d.publish.tiktok_method === "api" ? field("publish.tiktok_mode", "Modo", "select", { options: [["inbox", "Enviar a borradores (terminas en la app)"], ["direct", "Publicación directa"]] }) : ""}
         ${field("publish.tiktok_privacy", "Privacidad (directa)", "select", { options: [["SELF_ONLY", "Solo yo"], ["MUTUAL_FOLLOW_FRIENDS", "Amigos"], ["FOLLOWER_OF_CREATOR", "Seguidores"], ["PUBLIC_TO_EVERYONE", "Público"]], help: "Las apps de TikTok sin auditoría solo pueden publicar como «Solo yo»." })}
       </div>` : ""}
     </div>
+    ${(d.publish.youtube && d.publish.youtube_method !== "api") || (d.publish.tiktok && d.publish.tiktok_method !== "api") ? `<div class="platform-block">
+      ${toggle("publish.browser_visible", "Ver la ventana del navegador al publicar", "Útil para revisar las primeras publicaciones. Desactivado, Chrome trabaja fuera de la pantalla.")}
+      <div class="form-grid"><div class="field full"><span class="help">⚠ Publicar con el navegador imita lo que harías a mano, pero YouTube y TikTok no lo permiten oficialmente: puede aparecer un captcha o una advertencia en la cuenta. Publica pocas veces al día. Si cambian su página, puede dejar de funcionar hasta actualizar la app; en ese caso queda una captura del error.</span></div></div>
+    </div>` : ""}
     <div class="platform-block">
       ${toggle("publish.facebook", "Facebook", "Video largo como video de página y Shorts como Reels.")}
       ${d.publish.facebook ? `<div class="form-grid">${field("publish.facebook_graph_version", "Versión de Graph API", "text", { help: "Ej. v24.0. Actualízala si Meta la deja obsoleta." })}</div>` : ""}
@@ -927,7 +936,7 @@ function bindSettingsInputs() {
       set(cfg.draft, el.dataset.path, v);
       updateSaveBar();
       // re-render cuando cambian opciones que muestran/ocultan secciones
-      if (el.type === "checkbox" || el.type === "radio") {
+      if (el.type === "checkbox" || el.type === "radio" || RERENDER.includes(el.dataset.path)) {
         const y = window.scrollY;
         renderSettings();
         loadConnections(); loadSchedule();
@@ -1068,24 +1077,39 @@ async function loadConnections() {
     const fbHint = !fb.connected ? "Facebook se conecta con un token de página: guárdalo en Credenciales y queda listo."
       : fb.error ? `<span class="err-text">${esc(fb.error)}</span>` : "Se usa para publicar el video largo y los Reels en tu página.";
 
+    const br = c.browser || {};
+    const methods = { youtube: cfg.draft.publish.youtube_method || "browser", tiktok: cfg.draft.publish.tiktok_method || "browser" };
+    const browserRow = (p, label, cls) => {
+      const s = br[p] || {};
+      const hint = s.pending ? "Se abrió una ventana de Chrome: inicia sesión ahí. Se cierra sola al terminar."
+        : s.error ? `<span class="err-text">${esc(s.error)}</span>`
+        : s.connected ? "Sesión guardada en este PC. Se usa para publicar con el navegador."
+        : `Pulsa el botón: se abre Chrome para que inicies sesión en ${label} una sola vez.`;
+      return `<div class="conn-row">
+        <span class="platform ${cls}">${label}</span>
+        <div class="cr-text"><b>${s.connected ? "Conectado (navegador)" : s.pending ? "Esperando inicio de sesión…" : "No conectado"}</b><span>${hint}</span></div>
+        ${s.connected ? `<button class="btn sm ghost" data-bdisc="${p}">Cerrar sesión</button>` : ""}
+        <button class="btn sm ${s.connected ? "" : "primary"}" data-blogin="${p}" ${s.pending ? "disabled" : ""}>${s.connected ? "Volver a iniciar sesión" : `Iniciar sesión en ${label}`}</button>
+      </div>`;
+    };
     box.className = "";
     box.innerHTML = `
-      <div class="conn-row">
+      ${methods.youtube === "browser" ? browserRow("youtube", "YouTube", "youtube") : `<div class="conn-row">
         <span class="platform youtube">YouTube</span>
         <div class="cr-text"><b>${yt.connected && yt.error ? "Hay que reconectar" : status(yt)}</b><span>${ytHint}</span>${howTo("youtube")}</div>
         ${yt.connected ? `<button class="btn sm ghost" data-disc="youtube">Desconectar</button>` : ""}
         ${ytReady
           ? `<button class="btn sm ${yt.connected ? "" : "primary"}" id="btnConnYT" ${ytPending ? "disabled" : ""}>${yt.connected ? "Reconectar" : "Conectar YouTube"}</button>`
           : `<button class="btn sm secondary" data-goto="youtube_client_secret">Agregar credencial</button>`}
-      </div>
-      <div class="conn-row">
+      </div>`}
+      ${methods.tiktok === "browser" ? browserRow("tiktok", "TikTok", "tiktok") : `<div class="conn-row">
         <span class="platform tiktok">TikTok</span>
         <div class="cr-text"><b>${status(tt)}</b><span>${ttHint}</span>${howTo("tiktok")}</div>
         ${tt.connected ? `<button class="btn sm ghost" data-disc="tiktok">Desconectar</button>` : ""}
         ${ttMissing
           ? `<button class="btn sm secondary" data-goto="${ttMissing}">Agregar credenciales</button>`
           : `<button class="btn sm ${tt.connected ? "" : "primary"}" id="btnConnTT">${tt.connected ? "Reconectar" : "Conectar TikTok"}</button>`}
-      </div>
+      </div>`}
       <div class="conn-row">
         <span class="platform facebook">Facebook</span>
         <div class="cr-text"><b>${fb.connected ? (fb.error ? "Token con problemas" : status(fb)) : "No conectado"}</b><span>${fbHint}</span>${howTo("facebook")}</div>
@@ -1097,6 +1121,30 @@ async function loadConnections() {
         <button class="btn sm secondary" data-goto="facebook_page_token">Token de Facebook</button>
       </div>` : ""}`;
     $$("#connBox [data-goto]").forEach((b) => (b.onclick = () => goSecret(b.dataset.goto)));
+    $$("#connBox [data-blogin]").forEach((b) => (b.onclick = async () => {
+      const p = b.dataset.blogin;
+      try {
+        await api(`/api/browser-login/${p}`, { method: "POST" });
+        toast("Se abrió Chrome: inicia sesión en la ventana nueva", "ok");
+        loadConnections();
+        let tries = 0;
+        const iv = setInterval(async () => {
+          tries++;
+          const s = await api("/api/connections");
+          const st = (s.browser || {})[p] || {};
+          if (!st.pending || tries > 330) {
+            clearInterval(iv);
+            toast(st.connected ? "Sesión guardada" : (st.error || "No se completó el inicio de sesión"), st.connected ? "ok" : "err");
+            loadConnections(); refreshState();
+          }
+        }, 2000);
+      } catch (e) { toast(e.message, "err"); }
+    }));
+    $$("#connBox [data-bdisc]").forEach((b) => (b.onclick = async () => {
+      if (!confirm("¿Cerrar la sesión guardada en este PC?")) return;
+      await api(`/api/browser-disconnect/${b.dataset.bdisc}`, { method: "POST" });
+      loadConnections(); refreshState();
+    }));
     const bYT = $("#btnConnYT");
     if (bYT) bYT.onclick = async () => {
       try {

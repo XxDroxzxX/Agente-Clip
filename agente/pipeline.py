@@ -332,7 +332,7 @@ def _review(run: Run, cfg: dict, key: str, video, plan, total: float, portrait: 
 
 
 def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
-    from .publish import facebook, instagram, tiktok, youtube
+    from .publish import browser, facebook, instagram, tiktok, youtube
 
     p = cfg["publish"]
     run.step_start("publish", "Subiendo a las plataformas")
@@ -377,11 +377,18 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
 
         run.step_progress("publish", base, f"{platform}: subiendo {key}", force=True)
         try:
-            if platform == "youtube":
+            visible = bool(p.get("browser_visible"))
+            if platform == "youtube" and p.get("youtube_method", "browser") == "browser":
+                thumb = run.dir / key / "thumbnail.jpg"
+                res = browser.upload_youtube(video, plan.title, desc, plan.hashtags, p["youtube_privacy"], key != "long",
+                                             prog, thumbnail=thumb if thumb.is_file() else None, visible=visible)
+            elif platform == "youtube":
                 thumb = run.dir / key / "thumbnail.jpg"
                 res = youtube.upload(video, plan.title, desc, plan.hashtags, p["youtube_privacy"],
                                      p["youtube_category"], cfg["content"]["language"], key != "long", prog,
                                      thumbnail=thumb if thumb.is_file() else None)
+            elif platform == "tiktok" and p.get("tiktok_method", "browser") == "browser":
+                res = browser.upload_tiktok(video, f"{plan.title} {tags}", p["tiktok_privacy"], prog, visible=visible)
             elif platform == "tiktok":
                 res = tiktok.upload(video, f"{plan.title} {tags}", p["tiktok_mode"], p["tiktok_privacy"], prog)
             elif platform == "instagram":

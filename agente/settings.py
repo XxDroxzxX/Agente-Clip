@@ -103,9 +103,12 @@ DEFAULTS: dict[str, Any] = {
     "publish": {
         "auto_publish": False,
         "youtube": True,
+        "youtube_method": "browser",    # browser (YouTube Studio con tu sesión) | api (Data API; sin auditoría queda privado)
         "youtube_privacy": "private",   # private | unlisted | public
         "youtube_category": "26",       # 26 = Howto & Style, 22 = People & Blogs
         "tiktok": False,
+        "tiktok_method": "browser",     # browser (TikTok Studio con tu sesión) | api (Content Posting API)
+        "browser_visible": False,       # mostrar la ventana de Chrome mientras publica (útil para revisar)
         "tiktok_mode": "inbox",         # inbox (borrador) | direct
         "tiktok_privacy": "SELF_ONLY",
         "facebook": False,

@@ -115,6 +115,8 @@ Cada credencial tiene botón **Probar** para verificarla. Si hay clave de Pixaba
 
 ### Conexiones (una sola vez)
 
+- **YouTube y TikTok por navegador (recomendado, opción por defecto):** en *Conexiones* pulsa *Iniciar sesión en YouTube* o *Iniciar sesión en TikTok*. Se abre Google Chrome con un perfil propio de la app (`data/navegador/`); inicias sesión como siempre y la ventana se cierra sola al detectar la sesión. Desde ahí cada publicación abre Chrome fuera de la pantalla (o visible, con *Ver la ventana del navegador al publicar*), sube el video y lo publica con la privacidad elegida. No hace falta crear proyectos en Google Cloud ni apps de desarrollador, y los videos pueden salir públicos. Requiere Google Chrome instalado. Si algo falla, el error indica qué pasó y deja una captura en `data/navegador/errores/`. **Riesgos:** YouTube y TikTok no permiten oficialmente automatizar sus páginas; puede aparecer un captcha o una advertencia en la cuenta, y un cambio en sus páginas puede romper la publicación hasta actualizar la app. Publica pocas veces al día. Basado en la técnica de [social-auto-upload](https://github.com/dreammis/social-auto-upload) (MIT).
+- Las opciones por API siguen disponibles en *Publicación → Cómo se conecta*:
 - **YouTube:** guarda el OAuth client y pulsa *Conectar YouTube*; autoriza en la pestaña que se abre.
   - **«Acceso bloqueado: la app no completó la verificación»:** en Google Cloud → *Google Auth Platform → Público*, pulsa **Publicar app** (recomendado). Al conectar verás «Google no verificó esta app»: *Configuración avanzada → Ir a … (no seguro)*. Es seguro porque la app es tuya, y la autorización no vence. La otra opción es dejarla en *Prueba* y agregar tu correo en **Usuarios de prueba**, pero en ese modo Google vence la autorización **cada 7 días**.
   - Si la autorización vence o se revoca, Conexiones muestra «Hay que reconectar».
@@ -175,8 +177,10 @@ Duración típica en un portátil i7 de 8.ª generación: unos 10–20 minutos p
 
 ## 6. Limitaciones de las plataformas
 
-- **YouTube:** los proyectos de API **sin auditoría** de Google solo pueden subir videos **privados**, aunque se pida «público». Hay que solicitar la auditoría de la YouTube API para publicar públicamente. Cuota por defecto: 10 000 unidades/día.
-- **TikTok:** las apps sin auditoría solo publican como «Solo yo». El modo *borrador* envía el video a la bandeja de la app para terminar la publicación a mano. La API no ofrece métricas, así que TikTok no entra en el aprendizaje.
+- **Publicación por navegador:** evita las limitaciones de las API sin auditoría, pero depende de que YouTube Studio y TikTok Studio no cambien su página y de que la sesión siga abierta (si vence, la app pide volver a iniciar sesión). Con TikTok publicado por navegador tampoco hay métricas.
+
+- **YouTube (por API):** los proyectos de API **sin auditoría** de Google solo pueden subir videos **privados**, aunque se pida «público». Hay que solicitar la auditoría de la YouTube API para publicar públicamente. Cuota por defecto: 10 000 unidades/día.
+- **TikTok (por API):** las apps sin auditoría solo publican como «Solo yo». El modo *borrador* envía el video a la bandeja de la app para terminar la publicación a mano. La API no ofrece métricas, así que TikTok no entra en el aprendizaje.
 - **Facebook:** la versión de Graph API se configura en la interfaz (por defecto `v24.0`); actualízala cuando Meta la deje obsoleta. Los Reels deben durar entre 3 y 90 s.
 - **edge-tts** usa el servicio de lectura en voz alta de Microsoft Edge; es gratuito pero no es una API oficial con garantías.
 

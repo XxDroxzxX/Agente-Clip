@@ -23,7 +23,8 @@ def collect(run: Run, cfg: dict) -> dict:
     rows = []
     if by_platform.get("youtube"):
         run.step_progress(sid, 0.3, f"YouTube: {len(by_platform['youtube'])} publicaciones")
-        stats = youtube.fetch_stats([h["platform_id"] for h in by_platform["youtube"]])
+        stats = youtube.fetch_stats([h["platform_id"] for h in by_platform["youtube"]
+                                     if not str(h["platform_id"]).startswith("yt-browser")])
         for h in by_platform["youtube"]:
             if h["platform_id"] in stats:
                 rows.append({"ts": now, "platform": "youtube", "platform_id": h["platform_id"],

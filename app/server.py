@@ -195,10 +195,17 @@ def _readiness(cfg: dict, sec: dict) -> list[dict]:
               "hint": "Clips reales por escena (sin clave: fondos de color)", "critical": False})
     r.append({"ok": sec["youtube_api_key"], "label": "YouTube Data API key", "hint": "Investigación de tendencias", "critical": False})
     p = cfg["publish"]
+    from agente.publish import browser
     if p["youtube"]:
-        r.append({"ok": sec["youtube_token"], "label": "YouTube conectado", "hint": "Para publicar en tu canal", "critical": False})
+        by_browser = p.get("youtube_method", "browser") == "browser"
+        r.append({"ok": browser.status("youtube").get("connected") if by_browser else sec["youtube_token"],
+                  "label": "YouTube conectado" + (" (navegador)" if by_browser else ""),
+                  "hint": "Para publicar en tu canal", "critical": False})
     if p["tiktok"]:
-        r.append({"ok": sec["tiktok_token"], "label": "TikTok conectado", "hint": "Para publicar Shorts en TikTok", "critical": False})
+        by_browser = p.get("tiktok_method", "browser") == "browser"
+        r.append({"ok": browser.status("tiktok").get("connected") if by_browser else sec["tiktok_token"],
+                  "label": "TikTok conectado" + (" (navegador)" if by_browser else ""),
+                  "hint": "Para publicar Shorts en TikTok", "critical": False})
     if p["facebook"]:
         r.append({"ok": sec["facebook_page_token"], "label": "Facebook Page token", "hint": "Para publicar en tu página", "critical": False})
     if p.get("instagram"):
@@ -600,6 +607,44 @@ def _ig_account() -> tuple[str | None, str | None]:
         return None, str(e)[:300]
 
 
+_browser_logins: dict[str, subprocess.Popen] = {}
+
+
+def _browser_state(platform: str) -> dict:
+    from agente.publish import browser
+    st = browser.status(platform)
+    proc = _browser_logins.get(platform)
+    running = proc is not None and proc.poll() is None
+    return {"connected": bool(st.get("connected")), "pending": running, "error": None if running else st.get("error")}
+
+
+@app.post("/api/browser-login/{platform}")
+def browser_login(platform: str):
+    """Abre Chrome (ventana visible) para iniciar sesión una vez; el proceso termina solo al detectar la sesión."""
+    from agente.publish import browser
+    if platform not in browser.PLATFORMS:
+        raise HTTPException(404)
+    proc = _browser_logins.get(platform)
+    if proc is None or proc.poll() is not None:
+        _browser_logins[platform] = subprocess.Popen([sys.executable, "-m", "agente.publish.browser", "login", platform],
+                                                     cwd=str(ROOT), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                                     creationflags=0x08000000)
+    return _browser_state(platform)
+
+
+@app.post("/api/browser-disconnect/{platform}")
+def browser_disconnect(platform: str):
+    from agente.publish import browser
+    if platform not in browser.PLATFORMS:
+        raise HTTPException(404)
+    proc = _browser_logins.pop(platform, None)
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
+        time.sleep(1)
+    browser.disconnect(platform)
+    return {"ok": True}
+
+
 @app.get("/api/connections")
 def connections():
     sec = S.secrets_status()
@@ -618,6 +663,9 @@ def connections():
         if S.load()["publish"].get("instagram") and not out["facebook"]["error"]:
             out["instagram"]["name"], out["instagram"]["error"] = _cached("ig_acc", _ig_account)
             out["instagram"]["connected"] = bool(out["instagram"]["name"])
+    p = S.load()["publish"]
+    out["browser"] = {"youtube": _browser_state("youtube"), "tiktok": _browser_state("tiktok")}
+    out["methods"] = {"youtube": p.get("youtube_method", "browser"), "tiktok": p.get("tiktok_method", "browser")}
     return out
 
 
