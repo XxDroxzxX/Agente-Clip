@@ -1117,10 +1117,13 @@ async function loadConnections() {
       </div>
       ${cfg.draft.publish.instagram ? `<div class="conn-row">
         <span class="platform instagram">Instagram</span>
-        <div class="cr-text"><b>${ig.connected ? `Vinculado: ${esc(ig.name)}` : "No vinculado"}</b><span>${ig.error ? `<span class="err-text">${esc(ig.error)}</span>` : ig.connected ? "Se usa para publicar los Shorts como Reels." : "Usa el token de Facebook: guárdalo con los permisos de Instagram."}</span>${howTo("facebook")}</div>
-        <button class="btn sm secondary" data-goto="facebook_page_token">Token de Facebook</button>
+        <div class="cr-text"><b>${ig.connected ? `Vinculado: ${esc(ig.name)}` : "No vinculado"}</b><span>${ig.error ? `<span class="err-text">${esc(ig.error)}</span>` : ig.connected ? "Usa el mismo token de Facebook; no hay que guardar nada más. Se publican los Shorts como Reels." : fb.connected ? "Revisando la cuenta de Instagram vinculada a tu página…" : "Primero guarda el token de Facebook: Instagram usa ese mismo token."}</span>${howTo("facebook")}</div>
+        ${!fb.connected ? `<button class="btn sm secondary" data-goto="facebook_page_token">Agregar token de Facebook</button>`
+          : !ig.connected ? `<button class="btn sm" id="btnIgRetry">Comprobar de nuevo</button>` : ""}
       </div>` : ""}`;
     $$("#connBox [data-goto]").forEach((b) => (b.onclick = () => goSecret(b.dataset.goto)));
+    const bIg = $("#btnIgRetry");
+    if (bIg) bIg.onclick = async () => { bIg.disabled = true; await api("/api/connections?fresh=1").catch(() => {}); loadConnections(); };
     $$("#connBox [data-blogin]").forEach((b) => (b.onclick = async () => {
       const p = b.dataset.blogin;
       try {

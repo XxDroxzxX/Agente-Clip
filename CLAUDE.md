@@ -42,6 +42,9 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   El usuario debe rotar esas claves y borrarlos (botón en Configuración).
 - Facebook/Instagram: usar un token de **usuario de larga duración** (Depurador de tokens → Extend); la app
   lo convierte sola en token de página que no vence (`facebook.normalize_token`).
+  Si la página está en un portafolio comercial (Business Suite), `/me/accounts` viene vacío: se usan los ids de
+  `granular_scopes` del token (`facebook._granted_pages`). Síntoma del error: Instagram decía «nonexisting field
+  (instagram_business_account)» porque el token apuntaba al perfil personal.
 - YouTube: si Google muestra «Acceso bloqueado», publicar la app OAuth (Google Auth Platform → Público → Publicar app).
 
 ## Arquitectura (agente/)

@@ -581,9 +581,13 @@ def test_service(service: str):
 
 def _cached(key: str, fn, ttl: float = 300):
     c = _cache.get(key)
-    if not c or time.time() - c[0] > ttl:
+    if not c or time.time() - c[0] > (ttl if not _has_error(c[1]) else 20):
         _cache[key] = (time.time(), fn())
     return _cache[key][1]
+
+
+def _has_error(v) -> bool:
+    return isinstance(v, tuple) and len(v) == 2 and v[1] is not None
 
 
 def _fb_page() -> tuple[str | None, str | None]:
@@ -604,6 +608,9 @@ def _ig_account() -> tuple[str | None, str | None]:
         ig = instagram.account(S.load()["publish"]["facebook_graph_version"])
         return "@" + ig.get("username", "?"), None
     except Exception as e:
+        if "instagram_business_account" in str(e) and "nonexisting field" in str(e):
+            return None, ("El token guardado apunta a tu perfil personal y no a tu página. Vuelve a guardar el token "
+                          "de Facebook: la app obtiene sola el de la página.")
         return None, str(e)[:300]
 
 
@@ -646,7 +653,10 @@ def browser_disconnect(platform: str):
 
 
 @app.get("/api/connections")
-def connections():
+def connections(fresh: bool = False):
+    if fresh:  # «Comprobar de nuevo»: no usar resultados guardados
+        for k in ("yt_name", "tt_name", "fb_page", "ig_acc"):
+            _cache.pop(k, None)
     sec = S.secrets_status()
     out = {"youtube": {"connected": sec["youtube_token"], "name": None, "error": None, "pending": _connect_state["youtube"]},
            "tiktok": {"connected": sec["tiktok_token"], "name": None},
@@ -660,7 +670,7 @@ def connections():
         out["tiktok"]["name"] = _cached("tt_name", tiktok.user_name)
     if sec["facebook_page_token"]:
         out["facebook"]["name"], out["facebook"]["error"] = _cached("fb_page", _fb_page)
-        if S.load()["publish"].get("instagram") and not out["facebook"]["error"]:
+        if not out["facebook"]["error"]:  # se revisa aunque Instagram aún no esté guardado como activo
             out["instagram"]["name"], out["instagram"]["error"] = _cached("ig_acc", _ig_account)
             out["instagram"]["connected"] = bool(out["instagram"]["name"])
     p = S.load()["publish"]

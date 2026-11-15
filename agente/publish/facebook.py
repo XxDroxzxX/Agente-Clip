@@ -25,6 +25,29 @@ def page_info(version: str) -> dict:
     return data
 
 
+def _granted_pages(token: str, version: str) -> list[dict]:
+    """Páginas autorizadas en el token aunque /me/accounts venga vacío: pasa con las páginas administradas desde un
+    portafolio comercial (Meta Business Suite). El token trae sus ids en granular_scopes."""
+    try:
+        dbg = requests.get("https://graph.facebook.com/debug_token", timeout=20,
+                           params={"input_token": token, "access_token": token}).json().get("data", {})
+        if dbg.get("type") != "USER":
+            return []
+        ids = []
+        for sc in dbg.get("granular_scopes", []):
+            if sc.get("scope") in ("pages_manage_posts", "pages_show_list", "pages_read_engagement"):
+                ids += [i for i in sc.get("target_ids", []) if i not in ids]
+        pages = []
+        for pid in ids:
+            p = requests.get(f"https://graph.facebook.com/{version}/{pid}", timeout=20,
+                             params={"fields": "name,access_token", "access_token": token}).json()
+            if p.get("access_token"):
+                pages.append(p)
+        return pages
+    except Exception:
+        return []
+
+
 def normalize_token(token: str, version: str) -> tuple[str, str]:
     """Si pegan un token de USUARIO, obtiene el token de la página (que no vence si el de usuario es de larga
     duración). Devuelve (token_a_guardar, aviso para el usuario)."""
@@ -34,6 +57,8 @@ def normalize_token(token: str, version: str) -> tuple[str, str]:
     except Exception:
         return token, ""
     pages = r.get("data") if isinstance(r, dict) else None
+    if not pages and isinstance(r, dict) and "error" not in r:
+        pages = _granted_pages(token, version)
     note = ""
     if pages:  # era un token de usuario
         page = pages[0]
