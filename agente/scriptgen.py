@@ -33,6 +33,10 @@ class Scene(BaseModel):
                                "principal con las mismas palabras de visual_bible (no uses 'it' ni 'the same'), su acción concreta, el lugar, "
                                "la cámara y la luz. Una sola acción simple y filmable en 5 segundos.")
     animation: Optional[Animation] = Field(default=None, description="Gráfico animado sobre la toma (opcional). null si la escena no lo necesita.")
+    needs_ai: bool = Field(default=False, description="true si la escena NO se puede mostrar bien con video de stock: aparece el "
+                           "personaje de la historia, una acción o momento concreto de la trama, algo fantástico o inexistente. "
+                           "false si es genérica y fácil de encontrar en un banco de videos (paisaje, ciudad, comida, objetos, "
+                           "gente anónima). Marca solo las escenas que de verdad lo necesitan.")
 
 
 class MusicBrief(BaseModel):

@@ -199,9 +199,45 @@ class OrchestrationTest(unittest.TestCase):
                                                        ("p0. a black dog", True), ("p1. a black dog", True)])
         self.assertEqual([s.chained for s in shots], [False, True, False])
 
-    def test_fal_uses_ai_on_every_shot(self):
-        self.assertEqual(visuals.ai_shot_ids(self._shots(), _cfg(visual_provider="fal", comfy_max_shots=2)),
-                         [0, 1, 2, 3, 4])
+    def test_ai_select_modes(self):
+        shots = self._shots()
+        shots[1].needs_ai = shots[3].needs_ai = True
+        ids = lambda **v: visuals.ai_shot_ids(shots, _cfg(visual_provider="fal", **v))
+        self.assertEqual(ids(ai_select="all", comfy_max_shots=2), [0, 1, 2, 3, 4])
+        self.assertEqual(ids(ai_select="hook", comfy_max_shots=2), [0, 1])
+        self.assertEqual(ids(ai_select="smart", comfy_max_shots=0), [1, 3])
+        self.assertEqual(ids(ai_select="smart", comfy_max_shots=1), [1])
+
+    def test_smart_mix_uses_stock_and_rescues_rejected_scenes(self):
+        """Escena 0 pide IA; la 1 es genérica y el stock la cubre; en la 2 la visión rechaza todo: pasa a la IA."""
+        fake = FakeAI()
+        shots = [visuals.Shot(scene=s, duration=4.0, query=f"q{s}", prompt=f"p{s}", needs_ai=s == 0) for s in range(3)]
+
+        def gather(sources, query, min_dur, k, log):
+            c = mock.Mock(key=query, credit=f"stock {query}")
+            c.fetch.return_value = Path(f"{query}.mp4")
+            return [c, mock.Mock(key=query + "b")]
+
+        from agente import vision
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(visuals, "stock_sources", return_value=[object()]), \
+                mock.patch.object(visuals, "ai_provider", return_value=fake), \
+                mock.patch.object(visuals, "_director", return_value=None), \
+                mock.patch.object(visuals, "_gather", side_effect=gather), \
+                mock.patch.object(vision, "provider", return_value="gemini"), \
+                mock.patch.object(vision, "rank_scenes", return_value={1: [0], 2: []}), \
+                mock.patch.object(visuals.ffmpeg, "run", side_effect=_fake_ffmpeg([])):
+            visuals.fetch_for_item(shots, True, 1080, _cfg(visual_provider="comfyui", comfy_max_shots=0),
+                                   True, Path(tmp), lambda *a: None, lambda p: None)
+        self.assertEqual([c[0] for c in fake.calls], ["p0", "p2"])
+        self.assertEqual([s.credit for s in shots], ["Generado con IA", "stock q1", "Generado con IA"])
+        self.assertTrue(shots[2].rescued)
+
+    def test_rescue_respects_cap(self):
+        fake = FakeAI()
+        shots = [visuals.Shot(scene=s, duration=4.0, query=f"q{s}", prompt=f"p{s}", needs_ai=s == 0) for s in range(3)]
+        self._run(shots, _cfg(visual_provider="comfyui", comfy_max_shots=2), fake)  # sin stock: rescata hasta el tope
+        self.assertEqual([c[0] for c in fake.calls], ["p0", "p1"])
 
 
 class DirectorAnswerTest(unittest.TestCase):

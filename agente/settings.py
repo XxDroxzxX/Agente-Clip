@@ -71,7 +71,9 @@ DEFAULTS: dict[str, Any] = {
         "comfy_steps": 20,
         "comfy_fps": 24,
         "comfy_segment_seconds": 5,
-        "comfy_max_shots": 2,       # tomas IA por video (las primeras = el gancho); 0 = todas
+        "ai_select": "smart",       # smart: IA solo donde el guion lo pide o el stock no tiene nada que encaje
+                                    # hook: las primeras N tomas | all: todas (vale para ComfyUI y fal.ai)
+        "comfy_max_shots": 2,       # tope de tomas IA por video (0 = sin tope)
         "comfy_chain": "scene",     # scene: encadena dentro de cada escena y corta al cambiar | all: una sola cadena
         "comfy_keyframes": True,    # cada escena arranca de una imagen clave revisada (~1 min) antes de animarla
         "comfy_director": True,     # una IA con visión revisa cada toma y regenera la que no sigue la escena

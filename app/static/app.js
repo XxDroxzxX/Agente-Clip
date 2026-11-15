@@ -795,11 +795,12 @@ function renderSettings() {
     <h2 style="margin:22px 0 12px">Material visual</h2>
     ${radioCards("video.visual_provider", [
       ["pexels", "Clips reales de stock (Pixabay / Pexels)", "Gratis. Videos de stock elegidos escena por escena según el guion. Usa las claves que tengas guardadas."],
-      ["fal", "Video generado con IA (fal.ai)", "De pago. Cada toma continúa desde el último fotograma de la anterior."],
-      ["comfyui", "Video IA local en tu GPU (ComfyUI)", "Gratis, en tu tarjeta NVIDIA. Lento: IA en las primeras tomas (el gancho) y stock en el resto."],
+      ["fal", "Video generado con IA (fal.ai)", "De pago. Se combina con stock igual que la opción local, para pagar solo las escenas que lo necesitan."],
+      ["comfyui", "Video IA local en tu GPU (ComfyUI)", "Gratis, en tu tarjeta NVIDIA. Lento, por eso se combina con stock: IA en las escenas que lo necesitan y clips de Pixabay/Pexels en las genéricas."],
     ])}
     ${d.video.visual_provider === "comfyui" ? `<div class="form-grid" style="margin-top:16px">
-      ${field("video.comfy_max_shots", "Tomas con IA por video", "number", { min: 0, max: 30, help: "Las primeras tomas (el gancho); el resto usa clips de stock. 0 = todas (muy lento)." })}
+      ${field("video.ai_select", "Qué escenas van con IA", "select", { options: [["smart", "Mixto inteligente: IA solo donde hace falta, stock en lo genérico"], ["hook", "Las primeras tomas (el gancho)"], ["all", "Todas (muy lento o costoso)"]], help: "En modo mixto, el guion marca las escenas con el personaje o momentos concretos de la historia; paisajes, ciudades y objetos salen gratis de Pixabay/Pexels. Si el stock no tiene nada que encaje con una escena, esa escena también se genera con IA." })}
+      ${field("video.comfy_max_shots", "Máximo de tomas con IA por video", "number", { min: 0, max: 30, help: "Tope de tiempo o de costo. 0 = sin tope." })}
       ${field("video.fal_scope", "Usar IA en", "select", { options: [["shorts", "Solo Shorts (stock para el largo)"], ["all", "Shorts y video largo"]] })}
       ${field("video.comfy_resolution", "Resolución IA", "select", { options: [["480p", "480p (recomendada con 6–8 GB de VRAM)"], ["544p", "544p"], ["704p", "704p (nativa, pide 12 GB o más)"]], help: "Se escala al tamaño final del video." })}
       ${field("video.comfy_segment_seconds", "Segundos por segmento IA", "number", { min: 2, max: 8 })}
@@ -816,10 +817,12 @@ function renderSettings() {
     <div class="form-grid">
       <div class="field full"><span class="help">⏱ En una RTX 4050 de 6 GB cada toma de 5 s a 480p tarda ~8 min (la primera ~11 min, porque carga los modelos): un Short con 2 tomas IA suma ~20 min. Si una toma falla, se usa un clip de stock.</span></div>
     </div>` : ""}
-    ${d.video.visual_provider !== "fal" ? `<div class="form-grid" style="margin-top:16px">
+    ${d.video.visual_provider !== "fal" || d.video.ai_select !== "all" ? `<div class="form-grid" style="margin-top:16px">
       ${field("video.smart_clips", "Selección inteligente de clips", "select", { options: [["auto", "Automática (Gemini gratis si hay clave, si no Claude)"], ["gemini", "Solo Gemini (gratis)"], ["claude", "Solo Claude (de pago, Haiku)"], ["off", "Desactivada (primer resultado del banco)"]], help: "Una IA con visión mira las miniaturas de varios clips por escena y elige el que mejor muestra lo que dice la narración." })}
     </div>` : ""}
     ${d.video.visual_provider === "fal" ? `<div class="form-grid" style="margin-top:16px">
+      ${field("video.ai_select", "Qué escenas van con IA", "select", { options: [["smart", "Mixto inteligente: IA solo donde hace falta, stock en lo genérico"], ["hook", "Las primeras tomas (el gancho)"], ["all", "Todas (muy lento o costoso)"]], help: "En modo mixto, el guion marca las escenas con el personaje o momentos concretos de la historia; paisajes, ciudades y objetos salen gratis de Pixabay/Pexels. Si el stock no tiene nada que encaje con una escena, esa escena también se genera con IA." })}
+      ${field("video.comfy_max_shots", "Máximo de tomas con IA por video", "number", { min: 0, max: 30, help: "Tope de tiempo o de costo. 0 = sin tope." })}
       ${field("video.fal_scope", "Usar IA en", "select", { options: [["shorts", "Solo Shorts (stock para el largo)"], ["all", "Todo (costoso)"]] })}
       ${field("video.fal_segment_seconds", "Segundos por segmento IA", "number", { min: 2, max: 10 })}
       ${field("video.fal_t2v_model", "Modelo texto→video", "text", { help: "ID del modelo en fal.ai/models" })}

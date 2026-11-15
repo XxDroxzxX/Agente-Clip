@@ -110,7 +110,10 @@ Objetivo del usuario: video de calidad profesional tipo cine o anime generado **
   cuadros, sin saltos (`scdet`). 1 imagen clave repetida y 2 tomas re-animadas (4-5/10 → 9/10). Límite pendiente:
   la cara del personaje cambia entre escenas (cada imagen clave sale de texto); haría falta una imagen de
   referencia (IP-Adapter/PuLID o LoRA del personaje), que Wan 2.2 5B no trae.
-- Modo mixto (`comfy_max_shots`, por defecto 2): IA en las primeras tomas (el gancho) y stock con visión en el resto
+- Modo mixto (`ai_select`, vale para ComfyUI y fal.ai): `smart` (por defecto) = IA en las escenas que el guion marca
+  `needs_ai` (personaje, momento concreto, algo inexistente) y stock con visión en las genéricas; si la visión rechaza
+  todo el stock de una escena, `assign_stock(rescue=…)` la pasa a la IA. `hook` = las primeras N; `all` = todas.
+  `comfy_max_shots` es el tope de tomas IA por video (0 = sin tope), contado por escenas completas
   (`visuals.fetch_for_item`). La cadena de fotogramas solo sigue entre tomas IA consecutivas. Si `comfy_path` está
   configurado y ComfyUI está cerrado, el run lo abre y lo cierra al terminar; si ya estaba abierto, solo pide `/free`.
 - Ideas siguientes: LoRA de estilo anime o Wan 2.2 14B (no cabe bien en 6 GB), imagen clave primero (texto→imagen) y

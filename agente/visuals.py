@@ -44,6 +44,8 @@ class Shot:
     punch: float = 0.0        # acercamiento rápido al inicio de la toma (0 = no; 0.06 = 6 %)
     bible: str = ""           # ficha visual del video (personaje, lugar, estilo) para el generador IA
     chained: bool = False     # la toma IA continúa desde el último cuadro de la anterior
+    needs_ai: bool = False    # el guion pide video IA para esta escena (no es genérica)
+    rescued: bool = False     # el stock no tenía nada que encaje: pasó a la IA
 
 
 def plan_shots(scenes: list, durations: list[float], bible: str = "") -> list[Shot]:
@@ -55,7 +57,8 @@ def plan_shots(scenes: list, durations: list[float], bible: str = "") -> list[Sh
         n = 1 if anim else max(1, round(d / SHOT_SECONDS))
         for k in range(n):
             shots.append(Shot(scene=i, duration=d / n, query=sc.visual_query, prompt=sc.visual_prompt,
-                              text=sc.narration, anim=anim if k == 0 else None, bible=bible))
+                              text=sc.narration, anim=anim if k == 0 else None, bible=bible,
+                              needs_ai=bool(getattr(sc, "needs_ai", False))))
     return shots
 
 
@@ -305,9 +308,10 @@ def _gather(sources: list, query: str, min_dur: float, k: int, log) -> list[Cand
 
 def assign_stock(shots: list[Shot], sources: list, cfg: dict, portrait: bool,
                  log: Callable[[str, str], None], progress: Callable[[float], None],
-                 broll: list[str] | tuple = ()) -> None:
+                 broll: list[str] | tuple = (), rescue: Callable[[list[Shot]], bool] | None = None) -> None:
     """Busca candidatos por escena, deja que una IA con visión los ordene (si está disponible)
-    y asigna a cada toma el mejor clip que no se haya usado antes en el video."""
+    y asigna a cada toma el mejor clip que no se haya usado antes en el video.
+    rescue(tomas) -> True: esas tomas se generarán con IA en vez de usar un clip que no encaja."""
     from . import vision
     scenes: dict[int, list[Shot]] = {}
     for sh in shots:
@@ -351,6 +355,10 @@ def assign_stock(shots: list[Shot], sources: list, cfg: dict, portrait: bool,
         ok = len(seqs.get(i, []))
         if i not in order or ok >= len(group):
             continue
+        if ok == 0 and rescue is not None and rescue(group):
+            seqs[i] = []
+            log(f"Escena {i + 1}: ningún clip de stock encaja con «{group[0].query}»; se generará con IA.", "info")
+            continue
         if ok == 0:  # último recurso: lo mejor que haya, avisando
             seqs[i] = list(cands.get(i, []))
             log(f"Escena {i + 1}: ningún clip encaja con «{group[0].query}»; se usa el mejor disponible.", "warn")
@@ -366,6 +374,9 @@ def assign_stock(shots: list[Shot], sources: list, cfg: dict, portrait: bool,
     used: set[str] = set()
     for n, (i, group) in enumerate(scenes.items()):
         seq = seqs.get(i, [])
+        if not seq and rescue is not None and (i in order or not cands.get(i)) and \
+                (group[0].rescued or rescue(group)):
+            continue  # sin material: va a la IA
         for sh in group:
             for c in seq:
                 if c.key in used:
@@ -474,11 +485,32 @@ def ai_provider(cfg: dict, portrait: bool, log: Callable[[str, str], None]):
     return None
 
 
+def ai_cap(cfg: dict) -> int:
+    """Máximo de tomas IA por video (0 = sin tope)."""
+    return max(0, int(cfg["video"].get("comfy_max_shots", 0) or 0))
+
+
 def ai_shot_ids(shots: list[Shot], cfg: dict) -> list[int]:
-    """Índices de las tomas que van con IA. Con ComfyUI se puede limitar a las primeras N (el gancho)."""
-    v = cfg["video"]
-    n = int(v.get("comfy_max_shots", 0) or 0) if v["visual_provider"] == "comfyui" else 0
-    return list(range(len(shots) if n <= 0 else min(n, len(shots))))
+    """Tomas que van con IA desde el principio, según «ai_select»:
+    smart = las escenas que el guion marcó como no genéricas (el resto busca stock y, si no hay nada que encaje,
+    se rescata con IA mientras quede cupo); hook = las primeras N; all = todas."""
+    mode = cfg["video"].get("ai_select", "smart")
+    cap = ai_cap(cfg)
+    if mode == "all":
+        return list(range(len(shots)))
+    if mode == "hook":
+        return list(range(len(shots) if cap == 0 else min(cap, len(shots))))
+    scenes: dict[int, list[int]] = {}
+    for i, s in enumerate(shots):
+        if s.needs_ai:
+            scenes.setdefault(s.scene, []).append(i)
+    ids: list[int] = []
+    for group in scenes.values():  # escenas completas: no mezclar IA y stock dentro de una escena
+        if not cap or len(ids) + len(group) <= cap:
+            ids += group
+        elif not ids:
+            ids = group[:cap]
+    return ids
 
 
 def last_frame(video: Path, out: Path) -> Path:
@@ -658,15 +690,33 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
         log("Sin fuente de clips configurada: se usarán fondos de color. "
             "Agrega la API key de Pixabay o Pexels en Configuración.", "warn")
 
-    # índice original de cada toma IA: nombra sus archivos de forma estable para «Reintentar»
+    # índice original de cada toma: nombra los archivos IA de forma estable para «Reintentar»
+    orig = {id(s): n for n, s in enumerate(shots)}
     ai_idx = {id(shots[i]): i for i in ai_shot_ids(shots, cfg)} if ai else {}
     rest = [s for s in shots if id(s) not in ai_idx]
+    cap = ai_cap(cfg)
+    rescue = None
+    if ai and cfg["video"].get("ai_select", "smart") == "smart":
+        def rescue(group: list[Shot]) -> bool:
+            """El stock no tiene nada que encaje: la escena pasa a la IA si queda cupo."""
+            if cap and len(ai_idx) + len(group) > cap:
+                return False
+            for s in group:
+                ai_idx[id(s)] = orig[id(s)]
+                s.rescued = True
+            return True
     share = len(rest) / max(1, len(shots))
     if rest and stock:
-        assign_stock(rest, stock, cfg, portrait, log, lambda p: progress(p * share), broll)
+        assign_stock(rest, stock, cfg, portrait, log, lambda p: progress(p * share), broll, rescue)
         keep = {id(s) for s in rest} | set(ai_idx)
         shots[:] = [s for s in shots if id(s) in keep]
+    elif rest and rescue is not None:  # sin bancos de video: la IA cubre lo que pueda
+        for s in rest:
+            rescue([s])
     if not ai:
+        return shots
+    if not ai_idx:
+        log("IA: ninguna escena necesitó video generado; todo salió del stock.", "info")
         return shots
 
     v = cfg["video"]

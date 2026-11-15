@@ -204,7 +204,8 @@ def _readiness(cfg: dict, sec: dict) -> list[dict]:
     if p.get("instagram"):
         r.append({"ok": sec["facebook_page_token"], "label": "Instagram (token de página)",
                   "hint": "Reels en tu Instagram profesional vinculado a la página", "critical": False})
-    if cfg["video"]["visual_provider"] in ("pexels", "comfyui") and cfg["video"].get("smart_clips", "auto") != "off":
+    uses_stock = cfg["video"]["visual_provider"] != "fal" or cfg["video"].get("ai_select", "smart") != "all"
+    if uses_stock and cfg["video"].get("smart_clips", "auto") != "off":
         from agente import vision
         prov = vision.provider(cfg)
         r.append({"ok": prov is not None, "label": "Selección de clips con visión",
