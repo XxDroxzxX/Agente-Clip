@@ -106,6 +106,10 @@ Objetivo del usuario: video de calidad profesional tipo cine o anime generado **
   intentos con `better_prompt`, se queda la mejor) y luego se anima con imagen→video. Si una toma de video reprueba,
   se regenera una vez y el director compara ambas versiones (se queda la de mejor nota). ComfyUI queda abierto entre
   los videos del run (`fetch_for_item(release=False)` + `visuals.release_ai` al final del paso visual).
+  Run 2026-11-14 con imagen clave (Short de 35 s, todo IA): 70 min, revisión 9/10, sujeto visible en todos los
+  cuadros, sin saltos (`scdet`). 1 imagen clave repetida y 2 tomas re-animadas (4-5/10 → 9/10). Límite pendiente:
+  la cara del personaje cambia entre escenas (cada imagen clave sale de texto); haría falta una imagen de
+  referencia (IP-Adapter/PuLID o LoRA del personaje), que Wan 2.2 5B no trae.
 - Modo mixto (`comfy_max_shots`, por defecto 2): IA en las primeras tomas (el gancho) y stock con visión en el resto
   (`visuals.fetch_for_item`). La cadena de fotogramas solo sigue entre tomas IA consecutivas. Si `comfy_path` está
   configurado y ComfyUI está cerrado, el run lo abre y lo cierra al terminar; si ya estaba abierto, solo pide `/free`.
