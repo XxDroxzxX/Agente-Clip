@@ -850,7 +850,7 @@ function renderSettings() {
       ${d.publish.tiktok ? `<div class="form-grid">
         ${field("publish.tiktok_method", "Cómo se conecta", "select", { options: [["browser", "Navegador: tu sesión de TikTok Studio (recomendado)"], ["api", "API de TikTok (sin auditoría: privado o borrador)"]], help: "Con el navegador no hace falta una app de desarrollador y se puede publicar en público." })}
         ${d.publish.tiktok_method === "api" ? field("publish.tiktok_mode", "Modo", "select", { options: [["inbox", "Enviar a borradores (terminas en la app)"], ["direct", "Publicación directa"]] }) : ""}
-        ${field("publish.tiktok_privacy", "Privacidad (directa)", "select", { options: [["SELF_ONLY", "Solo yo"], ["MUTUAL_FOLLOW_FRIENDS", "Amigos"], ["FOLLOWER_OF_CREATOR", "Seguidores"], ["PUBLIC_TO_EVERYONE", "Público"]], help: "Las apps de TikTok sin auditoría solo pueden publicar como «Solo yo»." })}
+        ${field("publish.tiktok_privacy", d.publish.tiktok_method === "api" ? "Privacidad (directa)" : "Privacidad", "select", { options: [["SELF_ONLY", "Solo yo"], ["MUTUAL_FOLLOW_FRIENDS", "Amigos"], ...(d.publish.tiktok_method === "api" ? [["FOLLOWER_OF_CREATOR", "Seguidores"]] : []), ["PUBLIC_TO_EVERYONE", "Público"]], help: "Las apps de TikTok sin auditoría solo pueden publicar como «Solo yo»." })}
       </div>` : ""}
     </div>
     ${(d.publish.youtube && d.publish.youtube_method !== "api") || (d.publish.tiktok && d.publish.tiktok_method !== "api") ? `<div class="platform-block">

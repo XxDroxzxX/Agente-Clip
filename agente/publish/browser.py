@@ -298,33 +298,63 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str], p
 
 # ── TikTok Studio ──────────────────────────────────────
 
-TT_PRIVACY = {  # textos de la opción «Quién puede ver este video» (la interfaz se fuerza a inglés con ?lang=en)
-    "PUBLIC_TO_EVERYONE": ("Everyone", "Todos"),
-    "FOLLOWER_OF_CREATOR": ("Followers", "Seguidores"),
-    "MUTUAL_FOLLOW_FRIENDS": ("Friends", "Amigos"),
-    "SELF_ONLY": ("Only you", "Solo tú", "Solo yo"),
+TT_PRIVACY = {  # textos de «Quién puede ver esta publicación» (TikTok Studio usa el idioma de la cuenta)
+    "PUBLIC_TO_EVERYONE": ("Todo el mundo", "Everyone"),
+    "MUTUAL_FOLLOW_FRIENDS": ("Amigos", "Friends"),
+    "SELF_ONLY": ("Solo tú", "Only you"),
 }
-TT_POST = 'button[data-e2e="post_video_button"], div.button-group button:has-text("Post")'
+TT_VISIBILITY = '[data-e2e="video_visibility_container"] button[role="combobox"], [data-e2e="video_visibility_container"] .Select__trigger'
+TT_POST = 'button[data-e2e="post_video_button"]'
+
+
+def _tt_dismiss_tour(page) -> None:
+    """Cuentas nuevas ven un tour de bienvenida cuya capa tapa todos los clics: se cierra paso a paso."""
+    for _ in range(6):
+        if not _visible(page, ".react-joyride__overlay, .react-joyride__tooltip, .__floater"):
+            return
+        if not _click(page, '[data-test-id="button-primary"], .react-joyride__tooltip button:has-text("Entendido"), '
+                            '.react-joyride__tooltip button:has-text("Got it"), [data-test-id="button-skip"]', 2000):
+            page.keyboard.press("Escape")
+        page.wait_for_timeout(700)
+
+
+def _tt_privacy_now(page) -> str:
+    try:
+        return (page.locator(TT_VISIBILITY).first.inner_text(timeout=5000) or "").strip()
+    except Exception:
+        return ""
 
 
 def _tt_set_privacy(page, privacy: str) -> bool:
+    """Elige la privacidad y confirma que el selector la muestra (si no, no se publica)."""
     labels = TT_PRIVACY[privacy]
-    for opener in ('[data-e2e="video_visibility_container"] .Select__trigger',
-                   'div:has(> div:text-matches("Who can watch|Quién puede ver", "i")) button',
-                   'button:has-text("Everyone"), button:has-text("Todos")'):
-        if _click(page, opener, 3000):
-            page.wait_for_timeout(600)
-            for text in labels:
-                if _click(page, f'[role="option"]:has-text("{text}"), li:has-text("{text}")', 2000):
-                    page.wait_for_timeout(500)
-                    return True
-            page.keyboard.press("Escape")
-    # quizá ya está en el valor pedido
-    return any(_visible(page, f'button:has-text("{t}")') for t in labels)
+    ok = lambda: any(_tt_privacy_now(page).startswith(t) for t in labels)
+    if ok():
+        return True
+    for _ in range(2):
+        _tt_dismiss_tour(page)
+        if not _click(page, TT_VISIBILITY, 5000):
+            continue
+        page.wait_for_timeout(700)
+        for text in labels:
+            opt = page.locator('[role="option"]').filter(has_text=text).first
+            try:
+                opt.click(timeout=2500)
+                break
+            except Exception:
+                continue
+        page.wait_for_timeout(600)
+        if ok():
+            return True
+        page.keyboard.press("Escape")
+    return False
 
 
 def upload_tiktok(video: Path, caption: str, privacy: str, on_progress: Callable[[float], None],
-                  visible: bool = False) -> dict:
+                  visible: bool = False, dry_run: bool = False) -> dict:
+    """dry_run=True hace todo menos pulsar «Publicar» (para probar la conexión sin publicar nada)."""
+    if privacy == "FOLLOWER_OF_CREATOR":
+        raise BrowserError("TikTok Studio ya no ofrece la privacidad «Seguidores»; elige Público, Amigos o Solo yo.")
     if privacy not in TT_PRIVACY:
         privacy = "SELF_ONLY"
     with _browser("tiktok", visible=visible) as ctx:
@@ -334,7 +364,7 @@ def upload_tiktok(video: Path, caption: str, privacy: str, on_progress: Callable
                                "«Iniciar sesión en TikTok».")
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         page.set_default_timeout(60000)
-        page.goto("https://www.tiktok.com/tiktokstudio/upload?lang=en", wait_until="domcontentloaded")
+        page.goto("https://www.tiktok.com/tiktokstudio/upload", wait_until="domcontentloaded")
         page.wait_for_timeout(4000)
         if _session_expired(page, "tiktok"):
             _save_status("tiktok", connected=False)
@@ -346,6 +376,8 @@ def upload_tiktok(video: Path, caption: str, privacy: str, on_progress: Callable
         except Exception:
             _fail(page, "tiktok", "TikTok Studio no abrió el formulario de subida.")
         on_progress(0.2)
+        page.wait_for_timeout(3000)
+        _tt_dismiss_tour(page)
         editor.click()
         page.keyboard.press("Control+A")
         page.keyboard.press("Delete")
@@ -353,7 +385,8 @@ def upload_tiktok(video: Path, caption: str, privacy: str, on_progress: Callable
         page.wait_for_timeout(800)
         page.keyboard.press("Escape")  # cierra sugerencias de hashtags
         if not _tt_set_privacy(page, privacy):
-            _fail(page, "tiktok", f"No se pudo elegir la privacidad «{privacy}» en TikTok; no se publicó por seguridad.")
+            _fail(page, "tiktok", f"No se pudo elegir la privacidad «{TT_PRIVACY[privacy][0]}» en TikTok; "
+                                  "no se publicó por seguridad.")
         # el botón «Publicar» se habilita cuando termina la subida
         t0 = time.time()
         while time.time() - t0 < 1800:
@@ -368,6 +401,13 @@ def upload_tiktok(video: Path, caption: str, privacy: str, on_progress: Callable
             page.wait_for_timeout(2000)
         else:
             _fail(page, "tiktok", "La subida a TikTok no terminó en 30 minutos.")
+        _tt_dismiss_tour(page)
+        if not any(_tt_privacy_now(page).startswith(t) for t in TT_PRIVACY[privacy]):  # última comprobación
+            _fail(page, "tiktok", "La privacidad cambió antes de publicar; no se publicó por seguridad.")
+        if dry_run:
+            return {"platform_id": "", "url": "", "privacy": _tt_privacy_now(page), "note": "ensayo: no se publicó",
+                    "caption": page.locator('div.public-DraftEditor-content').first.inner_text()[:200],
+                    "screenshot": _shot(page, "tiktok-ensayo")}
         page.locator(TT_POST).first.click()
         page.wait_for_timeout(2000)
         _click(page, 'button:has-text("Post now"), button:has-text("Publicar ahora")', 4000)  # aviso de revisión

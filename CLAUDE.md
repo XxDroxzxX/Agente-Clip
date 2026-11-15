@@ -71,7 +71,10 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   vez: `python -m agente.publish.browser login youtube`), subidas con ventana fuera de pantalla (`browser_visible`).
   Motivo: la Data API sin auditoría deja los videos en privado y TikTok sin auditoría solo «Solo yo». Selectores por
   atributos (interfaz en español), verificación de privacidad antes de publicar, captura en `data/navegador/errores/`.
-  Basado en social-auto-upload (MIT). Los selectores de TikTok Studio no están verificados con una cuenta real todavía.
+  Basado en social-auto-upload (MIT). Verificado 2026-11-15: YouTube sube y publica en privado (27 s); TikTok
+  Studio verificado en ensayo (`dry_run=True`): sigue el idioma de la cuenta (ignora `?lang=`), las cuentas nuevas
+  muestran un tour (react-joyride) que tapa los clics (`_tt_dismiss_tour`), privacidad = combobox en
+  `video_visibility_container` con opciones «Todo el mundo / Amigos / Solo tú» (ya no hay «Seguidores»).
 
 ## Cómo verificar (método acordado)
 
