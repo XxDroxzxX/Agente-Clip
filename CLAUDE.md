@@ -46,9 +46,10 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   `granular_scopes` del token (`facebook._granted_pages`). Síntoma del error: Instagram decía «nonexisting field
   (instagram_business_account)» porque el token apuntaba al perfil personal.
 - Facebook video largo: subida por partes (`upload_phase` start/transfer/finish); en una sola petición, 177 MB
-  devolvían una página de error («Expecting value»). Instagram (2026-11-15): con esta cuenta los Reels de más de
-  ~34 s fallan en Meta (`ProcessingFailedError` por rupload y 2207076 por `video_url`), los cortos suben bien; no es
-  el archivo ni el transporte. Se explica en el error; no bajar fps para esquivarlo.
+  devolvían una página de error («Expecting value»). Instagram (2026-11-15): `ProcessingFailedError` (rupload) y
+  2207076 (`video_url`) son fallos intermitentes de Meta: en pruebas fallaban los Reels largos, pero luego un Short de
+  55 s subió bien y otro siguió fallando. No es el archivo ni el transporte; se explica en el error y se reintenta con
+  «Publicar». Si persiste, publicar Instagram por navegador (pendiente, acordado con el usuario).
 - YouTube: si Google muestra «Acceso bloqueado», publicar la app OAuth (Google Auth Platform → Público → Publicar app).
 
 ## Arquitectura (agente/)

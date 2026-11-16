@@ -20,9 +20,8 @@ PERMS_HINT = ("Revisa que tu Instagram sea profesional, esté vinculado a la pá
               "tenga los permisos instagram_basic e instagram_content_publish.")
 
 
-META_HINT = ("Es un fallo del lado de Meta: en las pruebas, con esta cuenta los Reels de más de ~34 s fallan por API "
-             "(los cortos suben bien), tanto subidos directo como por enlace. Vuelve a intentar más tarde con «Publicar» "
-             "o súbelo desde la app de Instagram; el video en sí está bien.")
+META_HINT = ("Es un fallo intermitente del lado de Meta (el mismo tipo de video a veces sube y a veces no). Vuelve a "
+             "intentar más tarde con «Publicar» o súbelo desde la app de Instagram; el video en sí está bien.")
 
 
 def _check(data: dict, what: str) -> dict:
