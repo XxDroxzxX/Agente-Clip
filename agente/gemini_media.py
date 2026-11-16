@@ -43,8 +43,14 @@ def _explain(r: requests.Response, what: str) -> MediaError:
         err = {}
     status, msg = err.get("status", ""), err.get("message", r.text[:200])
     if r.status_code == 429 or status == "RESOURCE_EXHAUSTED":
-        return MediaError(f"{what}: se agotó la cuota o tu clave no tiene facturación activa para este modelo. "
-                          "Revisa tu plan en aistudio.google.com (Uso y facturación).")
+        quota = " ".join(v.get("quotaId", "") for d in err.get("details", []) for v in d.get("violations", []))
+        if "FreeTier" in quota:
+            # el plan gratuito de la API no incluye estos modelos (la suscripción Gemini Plus/Pro no se aplica a la API)
+            return MediaError(f"{what}: esta clave está en el plan gratuito de la API, que no incluye este modelo. "
+                              "La suscripción de la app Gemini no se aplica a la API: hay que activar la facturación "
+                              "del proyecto de esa clave en aistudio.google.com → Uso y facturación.")
+        return MediaError(f"{what}: se agotó la cuota de este modelo por ahora. Vuelve a intentar más tarde o revisa "
+                          "tu plan en aistudio.google.com (Uso y facturación).")
     if r.status_code in (401, 403) or "API key not valid" in msg:
         return MediaError(f"{what}: la clave de imagen y video no es válida o no tiene permiso para este modelo.")
     if status == "INVALID_ARGUMENT" and ("safety" in msg.lower() or "policy" in msg.lower()):

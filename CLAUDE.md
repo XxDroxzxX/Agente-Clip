@@ -132,7 +132,9 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   (`attach_character`, `character.png` en la carpeta de fuentes) y cada imagen clave de escena sale de ella
   (`video.character_ref`, funciona con ComfyUI y Veo). Proveedor visual `veo` (`VeoVideo`, `predictLongRunning`,
   duraciones 4/6/8 s, variante «fast» por defecto; con Veo el director solo revisa imágenes clave, no regenera
-  video). El botón «Probar» lista los modelos sin generar (no confirma cuota).
+  video). El botón «Probar» lista los modelos sin generar (no confirma cuota). Verificado 2026-11-16 con la clave
+  de la cuenta Gemini Plus: ve 6 modelos de imagen pero todos dan 429 con cuota «...-FreeTier» (límite 0) y no
+  lista Veo: la suscripción de la app no se aplica a la API; hace falta facturación en el proyecto de la clave.
 - Investigación de nicho (`agente/niche.py`, Configuración → Investigar un nicho): la IA propone 6 nichos, cada uno se
   mide en YouTube (mediana de vistas/día, interacción, vistas por suscriptor, % de canales pequeños, % cortos;
   ~105 unidades de cuota por nicho) y la IA recomienda configuración; «Usar este nicho» la aplica (si recomienda

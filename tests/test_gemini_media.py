@@ -80,7 +80,10 @@ class VeoTest(unittest.TestCase):
     def test_quota_error_is_explained(self):
         r = mock.Mock(status_code=429, text="")
         r.json.return_value = {"error": {"status": "RESOURCE_EXHAUSTED", "message": "quota"}}
-        self.assertIn("facturación", str(gemini_media._explain(r, "Nano Banana")))
+        self.assertIn("más tarde", str(gemini_media._explain(r, "Nano Banana")))
+        r.json.return_value = {"error": {"status": "RESOURCE_EXHAUSTED", "message": "quota", "details": [
+            {"violations": [{"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}]}}
+        self.assertIn("plan gratuito de la API", str(gemini_media._explain(r, "Nano Banana")))
 
 
 if __name__ == "__main__":
