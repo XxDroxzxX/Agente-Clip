@@ -115,10 +115,12 @@ DEFAULTS: dict[str, Any] = {
         "facebook": False,
         "instagram": False,             # Reels con el mismo token de página (cuenta IG profesional vinculada)
         "facebook_graph_version": "v24.0",
-        "meta_fallback": True,          # si la API de Meta falla: Instagram por navegador y Facebook por otra vía
+        "meta_fallback": True,
+        "ai_label": False,              # marcar «hecho con IA» al publicar en Instagram por navegador (decisión del usuario)          # si la API de Meta falla: Instagram por navegador y Facebook por otra vía
     },
     "general": {
         "notify": True,             # aviso de Windows al terminar (o fallar) un run
+        "shutdown_after": False,    # apagar el PC al terminar la ejecución diaria (generación y publicaciones)
     },
     "storage": {
         "keep_work_days": 7,        # archivos de trabajo (tomas, audios) de runs más viejos se borran

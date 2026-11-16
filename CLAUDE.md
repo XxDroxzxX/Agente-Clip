@@ -116,6 +116,17 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   la respuesta (JSON válido sin Shorts): `scriptgen._gaps` lo detecta y se reintenta hasta 2 veces con el siguiente
   modelo de la cadena.
 
+- Decisiones del usuario (2026-11-16): **no** declarar contenido IA en las publicaciones (`publish.ai_label`, por
+  defecto apagado). Siempre `#parati` (+ `#fyp` en inglés/portugués) y `#shorts` en Shorts
+  (`scriptgen.finalize_hashtags`), más los hashtags más usados del nicho (`research.top_hashtags`, pesados por
+  vistas/día). Instagram por navegador elige «Original» en «Recortar» (por defecto recorta a 1:1) y lo comprueba con
+  la forma de la vista previa. Apagado automático (`general.shutdown_after`): solo en la ejecución diaria
+  (`run_day.ps1` pasa `--scheduled`), `shutdown /s /t 120`, cancelable con `shutdown /a`.
+- Investigación de nicho (`agente/niche.py`, Configuración → Investigar un nicho): la IA propone 6 nichos, cada uno se
+  mide en YouTube (mediana de vistas/día, interacción, vistas por suscriptor, % de canales pequeños, % cortos;
+  ~105 unidades de cuota por nicho) y la IA recomienda configuración; «Usar este nicho» la aplica (si recomienda
+  ComfyUI y no está configurado, deja stock).
+
 ## Cómo verificar (método acordado)
 
 - Pruebas sin red: `venv\Scripts\python.exe -m unittest discover -s tests`.

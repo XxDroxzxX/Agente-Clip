@@ -747,6 +747,18 @@ function renderSettings() {
   const d = cfg.draft;
   const body = $("#settingsBody");
   body.innerHTML = `
+  <div class="card" id="s-niche">
+    <div class="card-head"><h2>Investigar un nicho</h2></div>
+    <p class="card-desc">¿Empiezas o quieres cambiar de tema? La app propone nichos, los mide con datos reales de YouTube (demanda, interacción y espacio para canales nuevos) y te recomienda la configuración para cada uno. Usa unas 600 unidades de tu cuota diaria de YouTube (de 10 000) y la IA gratuita de Gemini.</p>
+    <div class="form-grid">
+      <div class="field full"><label for="nicheInterests">¿Qué te interesa? (opcional)</label><input type="text" id="nicheInterests" placeholder="Ej.: misterio, cocina rápida, finanzas personales… Vacío = los nichos con más potencial"></div>
+      <div class="field"><label for="nicheLang">Idioma de los videos</label><select id="nicheLang">${cfg.catalog.languages.map(([c, n]) => `<option value="${c}" ${c === d.content.language ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+      <div class="field"><label for="nicheRegion">País de la audiencia</label><select id="nicheRegion">${cfg.catalog.regions.map(([c, n]) => `<option value="${c}" ${c === d.content.region_code ? "selected" : ""}>${esc(n)}</option>`).join("")}</select></div>
+    </div>
+    <button class="btn primary" id="btnNiche" type="button" style="margin-top:10px">Investigar nichos</button>
+    <div id="nicheBox" style="margin-top:14px"></div>
+  </div>
+
   <div class="card" id="s-content">
     <div class="card-head"><h2>Contenido</h2></div>
     <p class="card-desc">Sobre qué crea el agente y para quién.</p>
@@ -923,6 +935,9 @@ function renderSettings() {
     <div class="card-head"><h2>Ejecución diaria</h2></div>
     <p class="card-desc">Crea una tarea en el Programador de tareas de Windows que ejecuta el run cada día (el equipo debe estar encendido). Publica solo si «Publicar automáticamente» está activo.</p>
     <div id="scheduleBox" class="muted">Cargando…</div>
+    <div style="margin-top:12px">
+      ${toggle("general.shutdown_after", "Apagar el PC al terminar", "Solo en la ejecución diaria: cuando termina de generar y de publicar todo, el equipo se apaga a los 2 minutos (aparece un aviso; para cancelarlo, ejecuta <code>shutdown /a</code>). Los runs que inicias a mano nunca apagan el equipo.")}
+    </div>
   </div>
 
   <div class="card" id="s-storage">
@@ -940,6 +955,7 @@ function renderSettings() {
   renderSecrets();
   renderVoiceSelect();
   bindSettingsInputs();
+  nicheBind();
   const t = $("#btnTestOllama");
   if (t) t.onclick = async () => {
     await saveSettings(true);
@@ -973,6 +989,63 @@ function renderVoiceSelect() {
   sel.innerHTML = Object.keys(groups).sort((a, b) => a.localeCompare(b, "es")).map((country) =>
     `<optgroup label="${esc(langName)} · ${esc(country)}">${groups[country].map((v) =>
       `<option value="${esc(v.name)}" ${v.name === cur ? "selected" : ""}>${esc(v.label)} (${v.gender === "Female" ? "mujer" : "hombre"})</option>`).join("")}</optgroup>`).join("");
+}
+
+// ── investigación de nicho ───────────────────────────
+let nichePoll = null;
+function nicheBind() {
+  const b = $("#btnNiche");
+  if (!b) return;
+  b.onclick = async () => {
+    try {
+      await api("/api/niche-research", { method: "POST", body: { interests: $("#nicheInterests").value, language: $("#nicheLang").value, region: $("#nicheRegion").value } });
+      nicheWatch();
+    } catch (e) { toast(e.message, "err"); }
+  };
+  api("/api/niche-research").then((s) => { nicheRender(s); if (s.state === "running") nicheWatch(); }).catch(() => {});
+}
+function nicheWatch() {
+  clearInterval(nichePoll);
+  nichePoll = setInterval(async () => {
+    const s = await api("/api/niche-research").catch(() => null);
+    if (!s) return;
+    nicheRender(s);
+    if (s.state !== "running") clearInterval(nichePoll);
+  }, 2000);
+}
+function nicheRender(s) {
+  const box = $("#nicheBox"), b = $("#btnNiche");
+  if (!box) return;
+  if (b) b.disabled = s.state === "running";
+  if (s.state === "running") { box.innerHTML = `<p class="muted">⏳ ${esc(s.log[s.log.length - 1] || "Empezando…")} (1-2 minutos)</p>`; return; }
+  if (s.state === "error") { box.innerHTML = `<p class="err-text">${esc(s.error)}</p>`; return; }
+  if (s.state !== "done" || !s.result) { box.innerHTML = ""; return; }
+  const label = (list, val) => (list.find(([v]) => v === val) || ["", val || "—"])[1];
+  const color = { recomendado: "var(--ok)", posible: "var(--warn, #d97706)", "difícil": "var(--err, #dc2626)" };
+  box.innerHTML = s.result.niches.map((n, i) => {
+    const m = n.metrics || {}, r = n.recommendation, st = n.settings;
+    return `<div class="conn-row" style="align-items:flex-start;flex-wrap:wrap">
+      <div class="cr-text" style="flex:1 1 420px">
+        <b>${esc(n.niche)} · ${n.score}/100${r ? ` · <span style="color:${color[r.verdict] || "inherit"}">${esc(r.verdict)}</span>` : ""}</b>
+        <span>Búsqueda: «${esc(n.query)}» · ${esc(n.audience)}</span>
+        <span>${m.videos ? `📈 ${Number(m.views_per_day).toLocaleString("es")} vistas/día (mediana) · 💬 ${m.engagement_pct}% interacción · 🌱 ${m.opportunity} vistas por suscriptor · ${m.small_channels_pct}% canales pequeños · 📱 ${m.shorts_pct}% videos cortos` : "Sin datos suficientes en YouTube."}</span>
+        ${r ? `<span>${esc(r.why)}</span>
+        <span><b>Ideas para empezar:</b> ${r.content_ideas.map(esc).join(" · ")}</span>
+        <span><b>Consejos:</b> ${r.tips.map(esc).join(" · ")}</span>
+        <span><b>Configuración recomendada:</b> ${st.video.visual_provider === "comfyui" ? "video IA local + stock" : "clips de stock"} · estilo visual «${esc(label(cfg.catalog.visual_styles, st.video.ai_style))}» · lectura «${esc(label(cfg.catalog.reading_styles, st.voice.gemini_style))}» · ${st.video.shorts_count} Short(s) al día${st.video.long_enabled ? ` + video largo de ${st.video.long_minutes} min` : ""} · ganchos: ${r.hook_styles.map(esc).join(", ")}</span>` : ""}
+      </div>
+      ${st ? `<button class="btn sm primary" data-niche="${i}">Usar este nicho</button>` : ""}
+    </div>`;
+  }).join("");
+  $$("#nicheBox [data-niche]").forEach((btn) => (btn.onclick = async () => {
+    if (!confirm("Se cambiarán el nicho, la audiencia, el idioma, la región, la voz y el material visual por los recomendados. ¿Continuar?")) return;
+    try {
+      const r = await api("/api/niche-apply", { method: "POST", body: { index: Number(btn.dataset.niche) } });
+      cfg.loaded = r.settings; cfg.draft = structuredClone(r.settings); customOpen.clear();
+      renderSettings(); loadConnections(); loadSchedule(); updateSaveBar();
+      toast(r.fixes && r.fixes.length ? `Nicho aplicado. ${r.fixes.join(" ")}` : "Nicho aplicado y guardado", r.fixes && r.fixes.length ? "warn" : "ok");
+    } catch (e) { toast(e.message, "err"); }
+  }));
 }
 
 function ollamaPresets() {

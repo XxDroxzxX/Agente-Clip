@@ -553,6 +553,30 @@ def _ig_ai_label(page) -> bool:
         return False
 
 
+def _ig_original_ratio(page) -> bool:
+    """En el paso «Recortar» Instagram encuadra en 1:1 por defecto: se elige «Original» para no recortar el video.
+    Devuelve True si quedó en el formato original (confirmado con la forma de la vista previa)."""
+    def shape() -> float:
+        box = page.locator('div[role="dialog"] video, div[role="dialog"] img[style*="object-fit"]').first.bounding_box()
+        return (box["height"] / box["width"]) if box and box["width"] else 0.0
+    try:
+        before = shape()
+        if not _click(page, 'div[role="dialog"] svg[aria-label="Seleccionar recorte"], '
+                            'div[role="dialog"] svg[aria-label="Select crop"]', 5000):
+            return False
+        page.wait_for_timeout(800)
+        opt = page.locator('div[role="dialog"] [role="button"], div[role="dialog"] button').filter(
+            has_text="Original").first
+        opt.click(timeout=4000)
+        page.wait_for_timeout(1200)
+        _click(page, 'div[role="dialog"] svg[aria-label="Seleccionar recorte"], '
+                     'div[role="dialog"] svg[aria-label="Select crop"]', 1500)  # cierra el menú de proporciones
+        after = shape()
+        return after > before + 0.05 or after > 1.2  # un video vertical queda más alto que ancho
+    except Exception:
+        return False
+
+
 def _ig_payload(text: str) -> dict:
     if text.startswith("for (;;);"):
         text = text[len("for (;;);"):]
@@ -588,6 +612,9 @@ def upload_instagram(video: Path, caption: str, on_progress: Callable[[float], N
         except Exception:
             _fail(page, "instagram", "Instagram no abrió el formulario para subir el video.")
         on_progress(0.3)
+        if not _ig_original_ratio(page):
+            _fail(page, "instagram", "No se pudo dejar el video en su formato original (Instagram lo recortaría a 1:1); "
+                                     "no se publicó.")
         heading = page.locator('div[role="dialog"] ._ac76 [role="heading"]').first
         for _ in range(2):  # recorte → edición → pie de foto
             before = heading.inner_text() if heading.count() else ""

@@ -435,7 +435,8 @@ def _instagram(run: Run, p: dict, video, caption: str, prog, key: str) -> dict:
                                "Instagram en Configuración → Conexiones (respaldo por navegador).")
         run.warn(f"instagram: la API de Meta falló con {key} ({str(e)[:140]}); se publica por navegador.", "publish")
         prog(0.0)
-        ai = "Generado con IA" in (run.state["items"].get(key, {}).get("credits") or [])
+        # la etiqueta de IA solo se marca si el usuario lo pide (por defecto no)
+        ai = bool(p.get("ai_label")) and "Generado con IA" in (run.state["items"].get(key, {}).get("credits") or [])
         res = browser.upload_instagram(video, caption, prog, visible=bool(p.get("browser_visible")), ai_generated=ai)
         res["note"] = (res.get("note", "") + " Publicado por navegador porque la API de Meta falló.").strip()
         code = (res.get("url") or "").rstrip("/").rsplit("/", 1)[-1]
@@ -653,6 +654,7 @@ def main(argv=None) -> int:
     g.add_argument("--publish-only", metavar="RUN_ID")
     g.add_argument("--metrics-only", action="store_true")
     g.add_argument("--resume", metavar="RUN_ID", help="retoma un run fallido desde el paso que falló")
+    ap.add_argument("--scheduled", action="store_true", help="run de la ejecución diaria (puede apagar el PC al final)")
     a = ap.parse_args(argv)
 
     run_id = a.publish_only or a.resume or a.run_id or new_run_id()
@@ -668,6 +670,27 @@ def main(argv=None) -> int:
         return _notify(run_id, full_run(run_id, publish))
     finally:
         _release_lock()
+        if a.scheduled and not (a.publish_only or a.metrics_only or a.resume):
+            _maybe_shutdown(run_id)
+
+
+SHUTDOWN_DELAY_S = 120
+
+
+def _maybe_shutdown(run_id: str) -> None:
+    """Apaga el equipo al terminar la ejecución diaria (generación y publicaciones), si el usuario lo activó.
+    Deja 2 minutos para cancelar con «shutdown /a»."""
+    try:
+        if not S.load().get("general", {}).get("shutdown_after", False):
+            return
+        import subprocess
+        msg = ("Agente de Clips terminó el run del día. El equipo se apagará en 2 minutos. "
+               "Para cancelarlo, ejecuta: shutdown /a")
+        Run(run_id, create=False).info("Apagado automático: el equipo se apagará en 2 minutos (cancelar: shutdown /a).")
+        subprocess.run(["shutdown", "/s", "/t", str(SHUTDOWN_DELAY_S), "/c", msg], capture_output=True,
+                       creationflags=0x08000000)
+    except Exception as e:  # el apagado nunca debe tumbar nada
+        print(f"[WARN] No se pudo programar el apagado: {e}", flush=True)
 
 
 def _notify(run_id: str, code: int) -> int:

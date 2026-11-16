@@ -827,6 +827,54 @@ def import_legacy(body: dict = Body(default={})):
     return {"imported": imported, "deleted": deleted}
 
 
+# ── investigación de nicho (para quien empieza) ──────
+
+_niche_job: dict = {"state": "idle", "log": [], "result": None, "error": None}
+
+
+@app.post("/api/niche-research")
+def niche_research_start(body: dict = Body(...)):
+    if _niche_job.get("state") == "running":
+        return _niche_job
+    from agente import niche
+    interests = str(body.get("interests", ""))[:300]
+    lang = body.get("language") or S.load()["content"]["language"]
+    region = body.get("region") or ""
+
+    def work():
+        try:
+            res = niche.research(S.load(), interests, lang, region, log=lambda m: _niche_job["log"].append(m))
+            _niche_job.update(state="done", result=res)
+        except Exception as e:
+            _niche_job.update(state="error", error=str(e)[:400])
+
+    _niche_job.update(state="running", log=[], result=None, error=None)
+    threading.Thread(target=work, daemon=True).start()
+    return _niche_job
+
+
+@app.get("/api/niche-research")
+def niche_research_state():
+    return _niche_job
+
+
+@app.post("/api/niche-apply")
+def niche_apply(body: dict = Body(...)):
+    res = _niche_job.get("result") or {}
+    try:
+        row = res["niches"][int(body.get("index", -1))]
+        patch = json.loads(json.dumps(row["settings"]))
+    except (KeyError, IndexError, ValueError, TypeError):
+        raise HTTPException(400, "Esa recomendación ya no está disponible; vuelve a investigar.")
+    notes = []
+    cfg = S.load()
+    if patch["video"]["visual_provider"] == "comfyui" and not (cfg["video"].get("comfy_path") or "").strip():
+        patch["video"]["visual_provider"] = "pexels"  # sin ComfyUI instalado, video IA local no funcionaría
+        notes.append("Se dejó «Clips de stock» porque este PC no tiene ComfyUI configurado (video IA local).")
+    saved, fixes = S.save(patch)
+    return {"settings": saved, "fixes": fixes + notes}
+
+
 # ── programación diaria (Programador de tareas de Windows) ──
 
 @app.get("/api/schedule")

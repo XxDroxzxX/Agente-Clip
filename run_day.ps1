@@ -16,5 +16,5 @@ $env:PYTHONIOENCODING = "utf-8"
 $runId = Get-Date -Format "yyyyMMdd-HHmmss"
 New-Item -ItemType Directory -Force -Path (Join-Path $ProjectRoot "runs\$runId") | Out-Null
 $log = Join-Path $ProjectRoot "runs\$runId\console.log"
-& $venvPy -m agente.pipeline --run-id $runId *>&1 | Tee-Object -FilePath $log
+& $venvPy -m agente.pipeline --run-id $runId --scheduled *>&1 | Tee-Object -FilePath $log
 exit $LASTEXITCODE

@@ -34,6 +34,30 @@ def _z(values):
     return [(v - mu) / sd for v in values]
 
 
+HASHTAG = re.compile(r"#([^\s#.,;:!?¡¿()\[\]\"'«»]{2,40})", re.UNICODE)
+GENERIC_TAGS = {"shorts", "short", "youtube", "youtubeshorts", "viral", "video", "subscribe", "fyp", "foryou",
+                "parati", "foryoupage", "fy", "trending", "tiktok", "reels"}
+
+
+def top_hashtags(videos: list[dict], n: int = 12) -> list[str]:
+    """Hashtags más usados por los videos en tendencia del nicho, pesados por su rendimiento (vistas/día).
+    Se excluyen los genéricos (#shorts, #fyp…): esos los agrega la app según la plataforma."""
+    score: dict[str, float] = {}
+    shown: dict[str, str] = {}
+    for v in videos:
+        weight = math.log1p(v.get("views_per_day", 0)) + 1
+        seen = set()
+        for raw in v.get("hashtags", []):
+            key = raw.lower()
+            if key in GENERIC_TAGS or key in seen or key.isdigit():
+                continue
+            seen.add(key)
+            score[key] = score.get(key, 0) + weight
+            shown.setdefault(key, raw)
+    ranked = sorted(score, key=lambda k: score[k], reverse=True)
+    return [f"#{shown[k]}" for k in ranked if score[k] > 0][:n]
+
+
 def search_query(cfg: dict, log=None) -> str:
     """Término de búsqueda en el idioma de la audiencia. Con el nicho escrito en otro idioma («Historias de terror»
     para un canal en inglés), YouTube devolvía tendencias de otro público. Manual (content.search_query) o traducido
@@ -120,6 +144,8 @@ def research(run: Run, cfg: dict) -> dict:
             "age_days": round(age_days, 1),
             "views_per_day": round(views / age_days, 1),
             "engagement": round((likes + comments) / views, 4) if views else 0.0,
+            "hashtags": HASHTAG.findall(v["snippet"]["title"] + " " + v["snippet"].get("description", ""))
+                        + [t.replace(" ", "") for t in v["snippet"].get("tags", [])[:15]],
         })
 
     zv = _z([math.log1p(v["views_per_day"]) for v in videos])
@@ -132,4 +158,7 @@ def research(run: Run, cfg: dict) -> dict:
     if top:
         run.info(f"Tendencia líder: «{top['title']}» ({top['views_per_day']:.0f} vistas/día, "
                  f"engagement {top['engagement']*100:.1f}%)", sid)
-    return {"niche": content["niche"], "videos": videos}
+    tags = top_hashtags(videos)
+    if tags:
+        run.info(f"Hashtags más usados en el nicho: {' '.join(tags[:8])}", sid)
+    return {"niche": content["niche"], "videos": videos, "top_hashtags": tags}

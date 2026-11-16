@@ -105,6 +105,10 @@ def build_prompt(cfg: dict, research: dict, hook_style: str) -> str:
         lines.append("Lo que han mostrado las métricas de nuestras publicaciones (tenlo en cuenta, sin volverlo una regla rígida):")
         lines += [f"- {x}" for x in learned]
         lines.append("")
+    if research.get("top_hashtags"):
+        lines.append("Hashtags más usados por los videos en tendencia del nicho (usa en cada video los 3-4 que de verdad "
+                     "correspondan a su tema; no inventes otros parecidos): " + " ".join(research["top_hashtags"]))
+        lines.append("")
     lines.append(f"Estilo de gancho obligatorio para hoy: {hook_style} — {HOOK_STYLES[hook_style]}")
     lines.append("")
     if v["long_enabled"]:
@@ -218,6 +222,38 @@ def _gemini(cfg: dict, prompt: str) -> tuple[ScriptPackage, str]:
 PROVIDERS = {"claude": ("Claude", _claude), "ollama": ("Ollama", _ollama), "gemini": ("Gemini", _gemini)}
 
 
+REACH_TAGS = {"es": ["#parati"], "en": ["#parati", "#fyp"], "pt": ["#parati", "#fyp"]}  # alcance: siempre
+
+
+def finalize_hashtags(tags: list[str], niche_tags: list[str], lang: str, is_short: bool, limit: int = 8) -> list[str]:
+    """Hashtags finales: los del guion y los más usados del nicho primero (son los que se muestran), luego #shorts en
+    los Shorts y siempre #parati (más #fyp para audiencias en inglés o portugués). Sin repetidos."""
+    out: list[str] = []
+
+    def add(t: str):
+        t = t.strip()
+        if not t:
+            return
+        t = t if t.startswith("#") else f"#{t}"
+        t = "#" + "".join(t[1:].split())
+        if t.lower() not in {x.lower() for x in out}:
+            out.append(t)
+
+    reach = REACH_TAGS.get(lang, REACH_TAGS["en"])
+    fixed = (["#shorts"] if is_short else []) + reach
+    room = max(0, limit - len(fixed))
+    for t in tags:
+        if t.lower().lstrip("#") not in {"shorts", "parati", "fyp"} and len(out) < room:
+            add(t)
+    for t in niche_tags:  # completa con los del nicho si el guion trajo pocos
+        if len(out) >= min(room, 5):
+            break
+        add(t)
+    for t in fixed:
+        add(t)
+    return out
+
+
 def _gaps(pkg: "ScriptPackage", cfg: dict) -> list[str]:
     """Lo que le falta al guion respecto de lo pedido (vacío si está completo)."""
     v, out = cfg["video"], []
@@ -269,7 +305,8 @@ def generate(run: Run, cfg: dict, research: dict, hook_style: str) -> ScriptPack
     pkg.shorts = pkg.shorts[:n]
     for plan in [pkg.long_video, *pkg.shorts]:
         plan.scenes = [s for s in plan.scenes if s.narration.strip()]
-        plan.hashtags = [h if h.startswith("#") else f"#{h}" for h in plan.hashtags][:8]
+        plan.hashtags = finalize_hashtags(plan.hashtags, research.get("top_hashtags", []),
+                                          cfg["content"]["language"], is_short=plan is not pkg.long_video)
         if not plan.scenes:
             raise RuntimeError(f"El guion «{plan.title}» no tiene escenas.")
     run.info(f"Guion listo: «{pkg.topic}» ({note})", sid)

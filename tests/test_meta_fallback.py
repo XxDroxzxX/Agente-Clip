@@ -44,7 +44,7 @@ class InstagramFallbackTest(unittest.TestCase):
     def test_api_error_uses_browser_with_ai_label(self):
         res, web, run = self._go(RuntimeError("ProcessingFailedError"))
         self.assertIn("navegador", res["note"])
-        self.assertTrue(web.call_args.kwargs["ai_generated"])
+        self.assertFalse(web.call_args.kwargs["ai_generated"])  # sin declaración de IA salvo que el usuario la active
         self.assertTrue(run.warnings)
 
     def test_uncertain_publish_is_never_repeated(self):

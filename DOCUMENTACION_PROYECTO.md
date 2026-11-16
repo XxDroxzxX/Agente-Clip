@@ -97,6 +97,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ## 4. Configuración inicial (desde la interfaz → Configuración)
 
+### Investigar un nicho (si empiezas)
+
+En *Configuración → Investigar un nicho* escribe lo que te interesa (o déjalo vacío), el idioma y el país de tu audiencia. La app propone 6 nichos, los mide con datos reales de YouTube de los últimos 30 días (vistas diarias, interacción, cuántas vistas logran los canales pequeños y cuánto pesan los videos cortos) y te recomienda para cada uno la voz, el estilo visual, si conviene stock o video IA y cuántos Shorts publicar. *Usar este nicho* aplica esa configuración. Usa unas 600 unidades de la cuota diaria de YouTube (10 000) y la IA gratuita de Gemini.
+
 ### Credenciales
 
 | Credencial | Para qué | Dónde se obtiene | Costo |
