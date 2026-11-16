@@ -667,7 +667,7 @@ $("#btnMetrics").onclick = async () => {
    Configuración
    ════════════════════════════════════════════════════════════ */
 let cfg = { loaded: null, draft: null, secrets: {}, meta: {}, voices: [], redirect: "", musicFiles: [], musicDir: "" };
-const TESTABLE = { gemini_api_key: "gemini", anthropic_api_key: "anthropic", pixabay_api_key: "pixabay", pexels_api_key: "pexels", youtube_api_key: "youtube_api", facebook_page_token: "facebook" };
+const TESTABLE = { gemini_media_api_key: "gemini_media", gemini_api_key: "gemini", anthropic_api_key: "anthropic", pixabay_api_key: "pixabay", pexels_api_key: "pexels", youtube_api_key: "youtube_api", facebook_page_token: "facebook" };
 
 const get = (o, p) => p.split(".").reduce((a, k) => (a == null ? a : a[k]), o);
 function set(o, p, v) { const ks = p.split("."); let a = o; ks.slice(0, -1).forEach((k) => (a = a[k])); a[ks.at(-1)] = v; }
@@ -845,6 +845,7 @@ function renderSettings() {
     ${radioCards("video.visual_provider", [
       ["pexels", "Clips reales de stock (Pixabay / Pexels)", "Gratis. Videos de stock elegidos escena por escena según el guion. Usa las claves que tengas guardadas."],
       ["fal", "Video generado con IA (fal.ai)", "De pago. Se combina con stock igual que la opción local, para pagar solo las escenas que lo necesitan."],
+      ["veo", "Video IA con Veo (Google)", "Usa tu «Gemini API key (imagen y video)». Alta calidad, en la nube; se combina con stock como las demás. Google puede cobrar por segundo de video según tu plan."],
       ["comfyui", "Video IA local en tu GPU (ComfyUI)", "Gratis, en tu tarjeta NVIDIA. Lento, por eso se combina con stock: IA en las escenas que lo necesitan y clips de Pixabay/Pexels en las genéricas."],
     ])}
     ${d.video.visual_provider === "comfyui" ? `<div class="form-grid" style="margin-top:16px">
@@ -861,6 +862,7 @@ function renderSettings() {
       ${field("video.comfy_url", "Dirección de ComfyUI", "text", { help: "Otro PC de la red también sirve, p. ej. <code>http://192.168.1.50:8188</code>." })}
       ${choiceField("video.comfy_workflow", "Workflow", cfg.workflows.map((w) => [w, w]), { placeholder: "ruta completa a un .json", help: "Los de <code>agente/workflows/</code>; «Personalizado…» para uno propio en formato API con marcadores {{prompt}}, {{width}}…" })}
     </div>
+    ${toggle("video.character_ref", "Personaje consistente (Nano Banana)", `Con tu «Gemini API key (imagen y video)», se crea una imagen del personaje una vez por video y cada escena parte de ella: la misma cara y ropa en todo el video. ${cfg.secrets.gemini_media_api_key ? "" : '<span class="err-text">Falta esa clave en Credenciales.</span>'}`)}
     ${toggle("video.comfy_keyframes", "Imagen clave primero", "Cada escena empieza con una imagen (~1 min) que el director revisa y repite si no muestra la escena; luego se anima. Evita gastar 5-8 min en tomas de video que salen mal.")}
     ${toggle("video.comfy_director", "Director IA", "Tras cada toma, una IA con visión (Gemini gratis) compara dos cuadros con la narración y regenera la toma si se desvió. Cuesta más tiempo de GPU solo cuando regenera.")}
     <div class="form-grid">
@@ -868,6 +870,14 @@ function renderSettings() {
     </div>` : ""}
     ${d.video.visual_provider !== "fal" || d.video.ai_select !== "all" ? `<div class="form-grid" style="margin-top:16px">
       ${field("video.smart_clips", "Selección inteligente de clips", "select", { options: [["auto", "Automática (Gemini gratis si hay clave, si no Claude)"], ["gemini", "Solo Gemini (gratis)"], ["claude", "Solo Claude (de pago, Haiku)"], ["off", "Desactivada (primer resultado del banco)"]], help: "Una IA con visión mira las miniaturas de varios clips por escena y elige el que mejor muestra lo que dice la narración." })}
+    </div>` : ""}
+    ${d.video.visual_provider === "veo" ? `<div class="form-grid" style="margin-top:16px">
+      ${field("video.ai_select", "Qué escenas van con IA", "select", { options: [["smart", "Mixto inteligente: IA solo donde hace falta, stock en lo genérico"], ["hook", "Las primeras tomas (el gancho)"], ["all", "Todas (costoso)"]] })}
+      ${numSelect("video.comfy_max_shots", "Máximo de tomas con IA por video", [[0, "Sin tope"], [1, "1"], [2, "2"], [3, "3"], [4, "4"], [6, "6"], [8, "8"]], { help: "Tope de costo: cada toma de Veo dura hasta 8 s." })}
+      ${field("video.fal_scope", "Usar IA en", "select", { options: [["shorts", "Solo Shorts (stock para el largo)"], ["all", "Todo (costoso)"]] })}
+      ${choiceField("video.ai_style", "Estilo visual", cfg.catalog.visual_styles, { placeholder: "en inglés, p. ej. cinematic, film grain" })}
+      <div class="field full">${toggle("video.character_ref", "Personaje consistente (Nano Banana)", "Cada escena parte de una imagen con el mismo personaje y Veo la anima.")}${toggle("video.comfy_director", "Director IA", "Revisa cada imagen clave y la repite si no muestra la escena (las imágenes cuestan mucho menos que el video).")}</div>
+      <div class="field full"><span class="help">${cfg.secrets.gemini_media_api_key ? "✓ Clave de imagen y video guardada." : '<span class="err-text">Falta la «Gemini API key (imagen y video)» en Credenciales.</span>'} Si Veo falla en una toma, esa toma usa un clip de stock.</span></div>
     </div>` : ""}
     ${d.video.visual_provider === "fal" ? `<div class="form-grid" style="margin-top:16px">
       ${field("video.ai_select", "Qué escenas van con IA", "select", { options: [["smart", "Mixto inteligente: IA solo donde hace falta, stock en lo genérico"], ["hook", "Las primeras tomas (el gancho)"], ["all", "Todas (muy lento o costoso)"]], help: "En modo mixto, el guion marca las escenas con el personaje o momentos concretos de la historia; paisajes, ciudades y objetos salen gratis de Pixabay/Pexels. Si el stock no tiene nada que encaje con una escena, esa escena también se genera con IA." })}

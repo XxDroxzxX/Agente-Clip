@@ -127,6 +127,12 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
 - Imagen con personaje de referencia («Nano Banana», `gemini-3.1-flash-image` y similares): la key del usuario los
   ve, pero el plan gratuito responde 429 (requiere facturación). Alternativa local por probar: un modelo de edición
   de imagen con referencia en ComfyUI (p. ej. Flux Kontext GGUF), pesado para 6 GB.
+- Imagen y video de Google con clave aparte (`gemini_media_api_key`, «Gemini API key (imagen y video)»;
+  `agente/gemini_media.py`): Nano Banana crea una imagen de referencia del personaje por video
+  (`attach_character`, `character.png` en la carpeta de fuentes) y cada imagen clave de escena sale de ella
+  (`video.character_ref`, funciona con ComfyUI y Veo). Proveedor visual `veo` (`VeoVideo`, `predictLongRunning`,
+  duraciones 4/6/8 s, variante «fast» por defecto; con Veo el director solo revisa imágenes clave, no regenera
+  video). El botón «Probar» lista los modelos sin generar (no confirma cuota).
 - Investigación de nicho (`agente/niche.py`, Configuración → Investigar un nicho): la IA propone 6 nichos, cada uno se
   mide en YouTube (mediana de vistas/día, interacción, vistas por suscriptor, % de canales pequeños, % cortos;
   ~105 unidades de cuota por nicho) y la IA recomienda configuración; «Usar este nicho» la aplica (si recomienda

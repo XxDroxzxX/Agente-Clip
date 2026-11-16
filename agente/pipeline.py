@@ -154,7 +154,8 @@ def step_voice(run: Run, cfg: dict, items) -> dict:
 
 def step_visuals(run: Run, cfg: dict, items, audio) -> dict:
     v = cfg["video"]
-    run.step_start("visuals", {"fal": "IA (fal.ai)", "comfyui": "IA local (ComfyUI) + stock"}.get(v["visual_provider"], "Clips de stock"))
+    run.step_start("visuals", {"fal": "IA (fal.ai)", "comfyui": "IA local (ComfyUI) + stock",
+                               "veo": "IA (Veo) + stock"}.get(v["visual_provider"], "Clips de stock"))
     all_shots = {}
     n_items = len(items)
     try:
@@ -165,7 +166,7 @@ def step_visuals(run: Run, cfg: dict, items, audio) -> dict:
         for idx, (key, plan, portrait) in enumerate(items):
             W, H = render.RESOLUTIONS[(v["quality"], portrait)]
             shots = visuals.plan_shots(plan.scenes, [s.duration for s in audio[key]], getattr(plan, "visual_bible", ""))
-            use_ai = v["visual_provider"] in ("fal", "comfyui") and (v["fal_scope"] == "all" or portrait)
+            use_ai = v["visual_provider"] in ("fal", "comfyui", "veo") and (v["fal_scope"] == "all" or portrait)
             src_dir = run.path(key, "sources", "x").parent
 
             def prog(p, idx=idx):

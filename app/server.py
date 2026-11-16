@@ -501,7 +501,7 @@ def _friendly_error(service: str, e: Exception) -> str:
     return f"Error inesperado: {str(e)[:200]}"
 
 
-_TEST_LABELS = {"gemini": "Gemini", "anthropic": "Claude", "pexels": "Pexels", "pixabay": "Pixabay", "youtube_api": "YouTube",
+_TEST_LABELS = {"gemini_media": "Gemini (imagen y video)", "gemini": "Gemini", "anthropic": "Claude", "pexels": "Pexels", "pixabay": "Pixabay", "youtube_api": "YouTube",
                 "facebook": "Facebook", "instagram": "Instagram", "ollama": "Ollama"}
 
 
@@ -524,6 +524,19 @@ def test_service(service: str):
             except anthropic.NotFoundError:
                 return {"ok": False, "msg": f"La clave es válida, pero el modelo «{model}» no está disponible para tu cuenta."}
             return {"ok": True, "msg": "Clave válida y modelo disponible"}
+        if service == "gemini_media":
+            from agente import gemini_media
+            if not S.get_secret("gemini_media_api_key"):
+                return no_key
+            try:
+                m = gemini_media.list_models()
+            except gemini_media.MediaError as e:
+                return {"ok": False, "msg": str(e)}
+            img = ", ".join(m["image"][:3]) or "ninguno"
+            vid = ", ".join(m["video"][:3]) or "ninguno"
+            return {"ok": bool(m["image"] or m["video"]),
+                    "msg": f"Clave válida. Imagen (Nano Banana): {img}. Video (Veo): {vid}. "
+                           "Ver los modelos no garantiza cuota: la primera generación lo confirma."}
         if service == "gemini":
             from agente import gemini
             if not S.get_secret("gemini_api_key"):

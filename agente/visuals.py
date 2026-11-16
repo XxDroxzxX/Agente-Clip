@@ -473,6 +473,13 @@ def ai_provider(cfg: dict, portrait: bool, log: Callable[[str, str], None]):
             log("Proveedor fal.ai seleccionado pero falta la API key; se usan clips de stock.", "warn")
             return None
         return FalVideo(key, cfg, portrait)
+    if prov == "veo":
+        from .gemini_media import VeoVideo
+        try:
+            return VeoVideo(cfg, portrait)
+        except Exception as e:
+            log(f"Veo no disponible ({str(e)[:200]}); se usan clips de stock.", "warn")
+            return None
     if prov == "comfyui":
         from .comfyui import ComfyVideo
         try:
@@ -568,9 +575,11 @@ def _director(cfg: dict, log) -> Director | None:
     """Director IA si está activado, el proveedor es local (regenerar no cuesta dinero) y hay IA con visión."""
     from . import vision
     v = cfg["video"]
-    if v["visual_provider"] != "comfyui" or not v.get("comfy_director", True) or not vision.provider(cfg):
+    if v["visual_provider"] not in ("comfyui", "veo") or not v.get("comfy_director", True) or not vision.provider(cfg):
         return None
-    return Director(cfg, log)
+    d = Director(cfg, log)
+    d.clips = v["visual_provider"] == "comfyui"  # con Veo cada toma cuesta: solo se revisan las imágenes clave
+    return d
 
 
 KEYFRAME_TRIES = 3  # imagen clave: original + 2 intentos con el prompt corregido (~1 min cada uno)
@@ -638,7 +647,7 @@ def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
             log(f"IA: generando toma {i+1}.{k+1} "
                 + ("desde el último fotograma" if link else "desde la imagen clave" if start else "desde el texto"), "info")
             _make_segment(ai, prompt, start, dest, seconds, log, trim=link)
-            verdict = director.clip(shot, dest, seconds, prompt) if director else None
+            verdict = director.clip(shot, dest, seconds, prompt) if director and getattr(director, "clips", True) else None
             if director and not director.ok(verdict):
                 # se desvió de la escena: una regeneración sin cadena, con el prompt corregido; queda la mejor
                 log(f"Director IA: toma {i+1}.{k+1} con nota {verdict.score}/10 ({verdict.issue}); se regenera.", "warn")
@@ -721,8 +730,14 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
     v = cfg["video"]
     log(f"IA: {len(ai_idx)} toma(s) con video generado"
         + (f"; {len(shots) - len(ai_idx)} con clips de stock." if len(shots) > len(ai_idx) else "."), "info")
-    by_scene = v.get("comfy_chain", "scene") == "scene" and v["visual_provider"] == "comfyui"
+    by_scene = v.get("comfy_chain", "scene") == "scene" and v["visual_provider"] in ("comfyui", "veo")
     keyframes = bool(v.get("comfy_keyframes", True)) and v["visual_provider"] == "comfyui"
+    bible = next((s.bible for s in shots if s.bible), "")
+    if v.get("character_ref", True) and bible and S.get_secret("gemini_media_api_key"):
+        from .gemini_media import attach_character
+        if attach_character(ai, bible, out_dir, portrait, v.get("ai_style", ""), log):
+            keyframes = True  # cada escena arranca de una imagen con el mismo personaje
+            log("Personaje consistente activo: las imágenes clave salen de Nano Banana con la referencia.", "info")
     director = _director(cfg, log)
     prev_clip: Path | None = None
     prev_scene: int | None = None

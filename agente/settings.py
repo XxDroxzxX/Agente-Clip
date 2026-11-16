@@ -26,6 +26,7 @@ SECRETS: dict[str, tuple[str, str]] = {
     "pixabay_api_key": ("Pixabay API key", "Gratis: crea una cuenta en pixabay.com y copia tu clave desde pixabay.com/api/docs — clips de video por escena"),
     "pexels_api_key": ("Pexels API key", "Opcional, gratis en pexels.com/api (Pexels pausó la emisión de claves nuevas; con Pixabay basta)"),
     "fal_api_key": ("fal.ai API key", "Opcional, de pago — video generado por IA encadenando fotogramas"),
+    "gemini_media_api_key": ("Gemini API key (imagen y video)", "Opcional. La clave de la cuenta de Google que tiene Nano Banana (imágenes) y Veo (video): aistudio.google.com → Get API key. Puede ser distinta de la de texto. Mantiene al mismo personaje en todas las escenas y permite generar video con Veo (Google puede cobrar según tu plan)"),
     "youtube_api_key": ("YouTube Data API key", "Google Cloud Console → Credenciales → Clave de API"),
     "youtube_client_secret": ("YouTube OAuth client (JSON)", "Contenido de client_secret.json (app de escritorio)"),
     "tiktok_client_key": ("TikTok client key", "developers.tiktok.com → tu app"),
@@ -58,7 +59,9 @@ DEFAULTS: dict[str, Any] = {
         "long_minutes": 3,
         "shorts_count": 2,
         "quality": "1080p",         # 1080p | 720p
-        "visual_provider": "pexels",  # pexels | fal | comfyui
+        "visual_provider": "pexels",  # pexels | fal | comfyui | veo
+        "character_ref": True,      # con la clave de imagen: personaje de referencia (Nano Banana) en las imágenes clave
+        "veo_model": "",            # vacío = la variante «fast» más nueva disponible
         "fal_scope": "shorts",      # shorts | all (también vale para ComfyUI)
         "fal_t2v_model": "fal-ai/wan-t2v",
         "fal_i2v_model": "fal-ai/wan-i2v",
@@ -156,7 +159,7 @@ RULES: dict[str, tuple] = {
     "video.long_minutes": ("int", 1, 15),
     "video.shorts_count": ("int", 0, 5),
     "video.quality": ("enum", ("1080p", "720p")),
-    "video.visual_provider": ("enum", ("pexels", "fal", "comfyui")),
+    "video.visual_provider": ("enum", ("pexels", "fal", "comfyui", "veo")),
     "video.fal_scope": ("enum", ("shorts", "all")),
     "video.fal_segment_seconds": ("int", 2, 10),
     "video.ai_select": ("enum", ("smart", "hook", "all")),
