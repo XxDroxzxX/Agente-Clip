@@ -114,6 +114,7 @@ DEFAULTS: dict[str, Any] = {
         "facebook": False,
         "instagram": False,             # Reels con el mismo token de página (cuenta IG profesional vinculada)
         "facebook_graph_version": "v24.0",
+        "meta_fallback": True,          # si la API de Meta falla: Instagram por navegador y Facebook por otra vía
     },
     "general": {
         "notify": True,             # aviso de Windows al terminar (o fallar) un run

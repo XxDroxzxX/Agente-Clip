@@ -57,8 +57,9 @@ class CatalogTest(unittest.TestCase):
 
 class RedactTest(unittest.TestCase):
     def test_keys_never_logged(self):
-        text = redact("https://x/search?regionCode=US&key=AIzaSyA1234567890abcdefghijklmnopqrst&alt=json")
-        self.assertNotIn("AIzaSy", text)
+        fake = "AI" + "za" + "x" * 33  # clave falsa armada por partes (para que no parezca una real en el repo)
+        text = redact(f"https://x/search?regionCode=US&key={fake}&alt=json")
+        self.assertNotIn(fake, text)
         self.assertIn("key=***", text)
 
 

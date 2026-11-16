@@ -689,7 +689,7 @@ def connections(fresh: bool = False):
             out["instagram"]["name"], out["instagram"]["error"] = _cached("ig_acc", _ig_account)
             out["instagram"]["connected"] = bool(out["instagram"]["name"])
     p = S.load()["publish"]
-    out["browser"] = {"youtube": _browser_state("youtube"), "tiktok": _browser_state("tiktok")}
+    out["browser"] = {k: _browser_state(k) for k in ("youtube", "tiktok", "instagram")}
     out["methods"] = {"youtube": p.get("youtube_method", "browser"), "tiktok": p.get("tiktok_method", "browser")}
     return out
 

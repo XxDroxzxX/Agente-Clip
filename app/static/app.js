@@ -897,6 +897,9 @@ function renderSettings() {
     <div class="platform-block">
       ${toggle("publish.instagram", "Instagram Reels", "Solo los Shorts. Usa el mismo token de página de Facebook; tu Instagram debe ser profesional y estar vinculado a la página.")}
     </div>
+    <div class="platform-block">
+      ${toggle("publish.meta_fallback", "Segunda vía si falla Meta", "La API de Meta a veces rechaza un video por un fallo suyo. Con esto, Instagram se publica por navegador (con la sesión de Conexiones) y un Reel de Facebook que falle se sube como video de la página. Nunca se reintenta si hay duda de que ya se publicó.")}
+    </div>
     <div class="form-grid" style="margin-top:16px">
       ${numSelect("metrics.min_age_hours", "Medir un video después de", [[24, "1 día"], [48, "2 días (recomendado)"], [72, "3 días"], [168, "1 semana"]])}
       ${numSelect("metrics.exploration", "Exploración del aprendizaje", [[0.1, "Baja: casi siempre el mejor gancho"], [0.2, "Media-baja"], [0.3, "Media (recomendada)"], [0.5, "Alta: prueba ganchos nuevos"]], { help: "Qué tan seguido prueba un gancho distinto al que mejor funciona." })}
@@ -1146,14 +1149,14 @@ async function loadConnections() {
 
     const br = c.browser || {};
     const methods = { youtube: cfg.draft.publish.youtube_method || "browser", tiktok: cfg.draft.publish.tiktok_method || "browser" };
-    const browserRow = (p, label, cls) => {
+    const browserRow = (p, label, cls, title = label) => {
       const s = br[p] || {};
       const hint = s.pending ? "Se abrió una ventana de Chrome: inicia sesión ahí. Se cierra sola al terminar."
         : s.error ? `<span class="err-text">${esc(s.error)}</span>`
         : s.connected ? "Sesión guardada en este PC. Se usa para publicar con el navegador."
         : `Pulsa el botón: se abre Chrome para que inicies sesión en ${label} una sola vez.`;
       return `<div class="conn-row">
-        <span class="platform ${cls}">${label}</span>
+        <span class="platform ${cls}">${title}</span>
         <div class="cr-text"><b>${s.connected ? "Conectado (navegador)" : s.pending ? "Esperando inicio de sesión…" : "No conectado"}</b><span>${hint}</span></div>
         ${s.connected ? `<button class="btn sm ghost" data-bdisc="${p}">Cerrar sesión</button>` : ""}
         <button class="btn sm ${s.connected ? "" : "primary"}" data-blogin="${p}" ${s.pending ? "disabled" : ""}>${s.connected ? "Volver a iniciar sesión" : `Iniciar sesión en ${label}`}</button>
@@ -1187,7 +1190,8 @@ async function loadConnections() {
         <div class="cr-text"><b>${ig.connected ? `Vinculado: ${esc(ig.name)}` : "No vinculado"}</b><span>${ig.error ? `<span class="err-text">${esc(ig.error)}</span>` : ig.connected ? "Usa el mismo token de Facebook; no hay que guardar nada más. Se publican los Shorts como Reels." : fb.connected ? "Revisando la cuenta de Instagram vinculada a tu página…" : "Primero guarda el token de Facebook: Instagram usa ese mismo token."}</span>${howTo("facebook")}</div>
         ${!fb.connected ? `<button class="btn sm secondary" data-goto="facebook_page_token">Agregar token de Facebook</button>`
           : !ig.connected ? `<button class="btn sm" id="btnIgRetry">Comprobar de nuevo</button>` : ""}
-      </div>` : ""}`;
+      </div>` : ""}
+      ${cfg.draft.publish.instagram && cfg.draft.publish.meta_fallback !== false ? browserRow("instagram", "Instagram", "instagram", "Instagram · respaldo") : ""}`;
     $$("#connBox [data-goto]").forEach((b) => (b.onclick = () => goSecret(b.dataset.goto)));
     const bIg = $("#btnIgRetry");
     if (bIg) bIg.onclick = async () => { bIg.disabled = true; await api("/api/connections?fresh=1").catch(() => {}); loadConnections(); };

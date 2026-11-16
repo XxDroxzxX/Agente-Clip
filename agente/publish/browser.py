@@ -24,10 +24,12 @@ from typing import Callable
 from ..paths import DATA_DIR
 
 ROOT = DATA_DIR / "navegador"
-PLATFORMS = ("youtube", "tiktok")
-LOGIN_URL = {"youtube": "https://studio.youtube.com", "tiktok": "https://www.tiktok.com/login?lang=es"}
-SESSION_COOKIE = {"youtube": ("SAPISID", "youtube.com"), "tiktok": ("sessionid", "tiktok.com")}
-NAME = {"youtube": "YouTube", "tiktok": "TikTok"}
+PLATFORMS = ("youtube", "tiktok", "instagram")
+LOGIN_URL = {"youtube": "https://studio.youtube.com", "tiktok": "https://www.tiktok.com/login?lang=es",
+             "instagram": "https://www.instagram.com/accounts/login/"}
+SESSION_COOKIE = {"youtube": ("SAPISID", "youtube.com"), "tiktok": ("sessionid", "tiktok.com"),
+                  "instagram": ("sessionid", "instagram.com")}
+NAME = {"youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram"}
 
 
 class BrowserError(RuntimeError):
@@ -439,6 +441,173 @@ def upload_tiktok(video: Path, caption: str, privacy: str, on_progress: Callable
     return {"platform_id": vid or f"tt-browser-{int(time.time())}", "url": "", "privacy": privacy,
             "note": "" if vid else "Publicado; TikTok aún procesa el video (el enlace aparecerá en TikTok Studio).",
             "via": "navegador"}
+
+
+# ── Instagram (respaldo cuando falla la API de Meta) ───
+
+IG_HOME = "https://www.instagram.com/"
+IG_MEDIA_INPUT = 'input[type="file"][accept*="video/mp4"]'
+IG_PRIMARY = '._ac76 [role="button"]:not(:has(svg))'  # acción principal del diálogo (Siguiente / Compartir)
+IG_EDITOR = '[contenteditable="true"][role="textbox"][data-lexical-editor="true"]'
+
+
+def _ig_dismiss(page) -> None:
+    """Avisos opcionales que tapan la página: notificaciones, «los videos ahora son reels», guardar sesión."""
+    for sel in ('div[role="dialog"]:has(img[src*="reels_nux_icon"]) ._a9-z div > button',
+                'div[role="dialog"]:has(img[src*="xxhdpi_launcher"]) ._a9-z > button >> nth=1',
+                'div[role="dialog"] button:has-text("Ahora no")', 'div[role="dialog"] button:has-text("Not Now")',
+                'div[role="dialog"] button:has-text("Aceptar")', 'div[role="dialog"] button:has-text("OK")'):
+        _click(page, sel, 1200)
+
+
+def _ig_open_create(page) -> None:
+    """Botón «Crear» del menú lateral (por estructura, no por texto) y, si aparece, la opción «Publicación»."""
+    nav = page.locator('a._a6hd[href="#"]').filter(has=page.locator("[aria-selected]"))
+    if nav.count() >= 2:
+        nav.nth(1).click()
+    elif not _click(page, 'svg[aria-label="Nueva publicación"], svg[aria-label="New post"], '
+                          'svg[aria-label="Crear"], svg[aria-label="Create"]', 5000):
+        raise BrowserError("No se encontró el botón «Crear» de Instagram.")
+    page.wait_for_timeout(1200)
+    if not _visible(page, f'div[role="dialog"] {IG_MEDIA_INPUT}'):
+        _click(page, 'a:has(svg[aria-label="Publicación"]), a:has(svg[aria-label="Post"]), '
+                     '[role="menuitem"]:has-text("Publicación"), [role="menuitem"]:has-text("Post")', 3000)
+        page.wait_for_timeout(1000)
+
+
+_IG_MARK_AI = """() => {
+  const dlg = [...document.querySelectorAll('div[role="dialog"]')].pop();
+  const label = dlg && [...dlg.querySelectorAll('*')].find(e => e.children.length === 0 && /etiqueta de IA|AI label|AI info/i.test(e.textContent));
+  let row = label;
+  for (let i = 0; i < 6 && row && !row.querySelector('input[role=switch], [role=switch]'); i++) row = row.parentElement;
+  const sw = row && row.querySelector('input[role=switch], [role=switch]');
+  if (!sw) return false;
+  sw.setAttribute('data-agente-ia', '1');
+  return true;
+}"""
+
+
+def _ig_ai_label(page) -> bool:
+    """Activa «Agregar etiqueta de IA» (Instagram la exige para video realista hecho con IA). True si quedó activa.
+    El panel se dibuja y actualiza con retraso: se espera a que aparezca y se confirma el estado varias veces."""
+    try:
+        for _ in range(10):
+            if page.evaluate(_IG_MARK_AI):
+                break
+            page.wait_for_timeout(1000)
+        else:
+            return False
+        sw = page.locator('[data-agente-ia="1"]').first
+        for attempt in range(2):
+            if sw.get_attribute("aria-checked") == "true":
+                return True
+            if attempt == 0:
+                sw.click(force=True)
+            for _ in range(8):  # confirmación opcional y estado que tarda en reflejarse
+                page.wait_for_timeout(500)
+                _click(page, 'div[role="dialog"] button:has-text("Aceptar"), div[role="dialog"] button:has-text("OK")', 300)
+                if sw.get_attribute("aria-checked") == "true":
+                    return True
+        return False
+    except Exception:
+        return False
+
+
+def _ig_payload(text: str) -> dict:
+    if text.startswith("for (;;);"):
+        text = text[len("for (;;);"):]
+    return json.loads(text)
+
+
+def upload_instagram(video: Path, caption: str, on_progress: Callable[[float], None], visible: bool = False,
+                     dry_run: bool = False, ai_generated: bool = False) -> dict:
+    """Publica un Reel desde instagram.com con la sesión guardada. El éxito se confirma con la respuesta de
+    Instagram (/api/v1/media/configure), no con un tiempo de espera."""
+    with _browser("instagram", visible=visible) as ctx:
+        if not _logged_in(ctx, "instagram"):
+            _save_status("instagram", connected=False)
+            raise BrowserError("Instagram no tiene sesión iniciada en el navegador. Ve a Configuración → Conexiones "
+                               "y pulsa «Iniciar sesión en Instagram».")
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page.set_default_timeout(60000)
+        page.goto(IG_HOME, wait_until="domcontentloaded")
+        page.wait_for_timeout(5000)
+        if "/accounts/login" in page.url:
+            _save_status("instagram", connected=False)
+            raise BrowserError("La sesión de Instagram venció. Vuelve a iniciar sesión en Configuración → Conexiones.")
+        _ig_dismiss(page)
+        try:
+            _ig_open_create(page)
+            dialog = page.locator('div[role="dialog"]').filter(has=page.locator(IG_MEDIA_INPUT)).first
+            dialog.locator(IG_MEDIA_INPUT).first.set_input_files(str(video))
+            page.wait_for_timeout(3000)
+            _ig_dismiss(page)
+            page.locator(IG_PRIMARY).first.wait_for(state="visible", timeout=90000)
+        except BrowserError:
+            raise
+        except Exception:
+            _fail(page, "instagram", "Instagram no abrió el formulario para subir el video.")
+        on_progress(0.3)
+        heading = page.locator('div[role="dialog"] ._ac76 [role="heading"]').first
+        for _ in range(2):  # recorte → edición → pie de foto
+            before = heading.inner_text() if heading.count() else ""
+            page.locator(IG_PRIMARY).first.click()
+            for _ in range(60):
+                page.wait_for_timeout(1000)
+                if heading.count() and heading.inner_text() != before:
+                    break
+            _ig_dismiss(page)
+        editor = page.locator(IG_EDITOR).first
+        try:
+            editor.wait_for(state="visible", timeout=30000)
+        except Exception:
+            _fail(page, "instagram", "Instagram no mostró el cuadro del pie de foto.")
+        editor.click()
+        page.keyboard.insert_text(caption[:2200])
+        page.wait_for_timeout(800)
+        ai_note = ""
+        if ai_generated and not _ig_ai_label(page):
+            ai_note = "No se pudo activar la etiqueta de IA de Instagram; actívala a mano en el Reel."
+        on_progress(0.5)
+        if dry_run:
+            return {"platform_id": "", "url": "", "privacy": "public", "note": ("ensayo: no se publicó. " + ai_note).strip(),
+                    "ai_label": page.locator('[data-agente-ia="1"]').first.get_attribute("aria-checked") if ai_generated else None,
+                    "screenshot": _shot(page, "instagram-ensayo")}
+        answers: list = []
+
+        def on_response(r):
+            if r.request.method == "POST" and "/api/v1/media/configure" in r.url:
+                answers.append(r)
+
+        page.on("response", on_response)
+        page.locator(IG_PRIMARY).first.click()  # «Compartir»: una sola vez
+        media, t0 = None, time.time()
+        while time.time() - t0 < 600 and media is None:  # el Reel se procesa: primero responde 202
+            page.wait_for_timeout(2000)
+            while answers:
+                try:
+                    body = _ig_payload(answers.pop(0).text())
+                except Exception:
+                    continue
+                body = body.get("payload", body)
+                if body.get("statusCode") == 202:
+                    continue
+                if body.get("status") not in (None, "ok"):
+                    _fail(page, "instagram", f"Instagram no aceptó la publicación: {body.get('message', body.get('status'))}")
+                media = body.get("media") or {}
+            on_progress(min(0.95, 0.55 + (time.time() - t0) / 600 * 0.4))
+        if not media:
+            if _visible(page, 'div[role="dialog"] img[alt*="check" i], div[role="dialog"] :text-matches("se compartió|has been shared", "i")'):
+                media = {}
+            else:
+                _fail(page, "instagram", "Instagram no confirmó la publicación en 10 minutos; revisa tu perfil antes de reintentar.")
+        page.wait_for_timeout(2000)
+    _save_status("instagram", connected=True, error=None)
+    on_progress(1.0)
+    code = media.get("code", "")
+    return {"platform_id": str(media.get("id") or f"ig-browser-{int(time.time())}"),
+            "url": f"{IG_HOME}reel/{code}/" if code else "", "privacy": "public",
+            "note": (("" if code else "Publicado; el enlace aparecerá en tu perfil. ") + ai_note).strip(), "via": "navegador"}
 
 
 if __name__ == "__main__":

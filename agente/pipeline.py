@@ -392,13 +392,9 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
             elif platform == "tiktok":
                 res = tiktok.upload(video, f"{plan.title} {tags}", p["tiktok_mode"], p["tiktok_privacy"], prog)
             elif platform == "instagram":
-                res = instagram.upload_reel(video, f"{plan.title}\n\n{plan.description}\n\n{tags}",
-                                            p["facebook_graph_version"], prog)
+                res = _instagram(run, p, video, f"{plan.title}\n\n{plan.description}\n\n{tags}", prog, key)
             else:
-                if key == "long":
-                    res = facebook.upload_video(video, plan.title, desc, p["facebook_graph_version"], prog)
-                else:
-                    res = facebook.upload_reel(video, f"{plan.title}\n\n{tags}", p["facebook_graph_version"], prog)
+                res = _facebook(run, p, video, plan, desc, tags, prog, key)
             rec = {"item": key, "platform": platform, "title": plan.title, **res}
             run.add_upload(rec)
             item = run.state["items"].get(key, {})
@@ -422,6 +418,51 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
         learning.add_history(history)
     # con algún error el paso queda en rojo: el botón «Publicar» reintenta solo lo que falló
     run.step_end("publish", "done" if failed == 0 else "failed", f"{ok} publicados, {failed} con error")
+
+
+def _instagram(run: Run, p: dict, video, caption: str, prog, key: str) -> dict:
+    """API de Meta y, si falla sin haber publicado, respaldo por navegador (instagram.com con la sesión guardada)."""
+    from .publish import browser, instagram
+    try:
+        return instagram.upload_reel(video, caption, p["facebook_graph_version"], prog)
+    except instagram.UncertainPublish:
+        raise  # podría estar publicado: reintentar por otra vía lo duplicaría
+    except Exception as e:
+        if not p.get("meta_fallback", True):
+            raise
+        if not browser.status("instagram").get("connected"):
+            raise RuntimeError(f"{e} Para que se publique solo por otra vía cuando esto pase, inicia sesión en "
+                               "Instagram en Configuración → Conexiones (respaldo por navegador).")
+        run.warn(f"instagram: la API de Meta falló con {key} ({str(e)[:140]}); se publica por navegador.", "publish")
+        prog(0.0)
+        ai = "Generado con IA" in (run.state["items"].get(key, {}).get("credits") or [])
+        res = browser.upload_instagram(video, caption, prog, visible=bool(p.get("browser_visible")), ai_generated=ai)
+        res["note"] = (res.get("note", "") + " Publicado por navegador porque la API de Meta falló.").strip()
+        return res
+
+
+def _facebook(run: Run, p: dict, video, plan, desc: str, tags: str, prog, key: str) -> dict:
+    """Video largo por partes; Reels por su endpoint y, si falla, como video de página (otra vía de la misma API)."""
+    from .publish import facebook
+    version = p["facebook_graph_version"]
+    if key == "long":
+        try:
+            return facebook.upload_video(video, plan.title, desc, version, prog)
+        except Exception as e:
+            if not p.get("meta_fallback", True):
+                raise
+            run.warn(f"facebook: la subida del video largo falló ({str(e)[:140]}); se reintenta en 30 s.", "publish")
+            time.sleep(30)
+            return facebook.upload_video(video, plan.title, desc, version, prog)
+    try:
+        return facebook.upload_reel(video, f"{plan.title}\n\n{tags}", version, prog)
+    except Exception as e:
+        if not p.get("meta_fallback", True) or "(publicación)" in str(e):
+            raise  # si falló al confirmar, podría estar publicado: no se duplica
+        run.warn(f"facebook: el Reel de {key} falló ({str(e)[:140]}); se publica como video de la página.", "publish")
+        res = facebook.upload_video(video, plan.title, f"{plan.title}\n\n{tags}", version, prog)
+        res["note"] = (res.get("note", "") + " Publicado como video de la página porque falló la vía de Reels.").strip()
+        return res
 
 
 def step_metrics(run: Run, cfg: dict) -> None:

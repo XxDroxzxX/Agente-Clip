@@ -24,6 +24,10 @@ META_HINT = ("Es un fallo intermitente del lado de Meta (el mismo tipo de video 
              "intentar más tarde con «Publicar» o súbelo desde la app de Instagram; el video en sí está bien.")
 
 
+class UncertainPublish(RuntimeError):
+    """La orden de publicar no tuvo respuesta: puede que el Reel sí se haya publicado (no reintentar por otra vía)."""
+
+
 def _check(data: dict, what: str) -> dict:
     if isinstance(data, dict) and "error" in data:
         msg = data["error"].get("message", "")
@@ -74,8 +78,13 @@ def upload_reel(video: Path, caption: str, version: str, on_progress: Callable[[
             raise RuntimeError("Instagram tardó más de 10 minutos en procesar el video.")
         on_progress(min(0.9, 0.6 + (time.time() - t0) / 600 * 0.3))
         time.sleep(5)
-    pub = _check(requests.post(f"{GRAPH}/{version}/{ig['id']}/media_publish", timeout=60, data={
-        "creation_id": cid, "access_token": token}).json(), "publicar")
+    try:
+        answer = requests.post(f"{GRAPH}/{version}/{ig['id']}/media_publish", timeout=60, data={
+            "creation_id": cid, "access_token": token}).json()
+    except (requests.RequestException, ValueError) as e:
+        raise UncertainPublish(f"Instagram no respondió a la orden de publicar ({e}). Revisa tu perfil antes de "
+                               "reintentar: puede que el Reel sí se haya publicado.")
+    pub = _check(answer, "publicar")
     media_id = pub["id"]
     link = ""
     try:

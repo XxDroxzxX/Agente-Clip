@@ -49,7 +49,12 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   devolvían una página de error («Expecting value»). Instagram (2026-11-15): `ProcessingFailedError` (rupload) y
   2207076 (`video_url`) son fallos intermitentes de Meta: en pruebas fallaban los Reels largos, pero luego un Short de
   55 s subió bien y otro siguió fallando. No es el archivo ni el transporte; se explica en el error y se reintenta con
-  «Publicar». Si persiste, publicar Instagram por navegador (pendiente, acordado con el usuario).
+  «Publicar». Segunda vía (`publish.meta_fallback`, por defecto activa; `pipeline._instagram` / `_facebook`):
+  si la API falla, Instagram se publica por navegador (`browser.upload_instagram`, éxito confirmado con la respuesta
+  de `/api/v1/media/configure`, activa «Agregar etiqueta de IA» si el video tiene tomas IA) y un Reel de Facebook se
+  sube como video de página; el video largo se reintenta una vez. Nunca se reintenta si la orden de publicar quedó
+  sin respuesta (`instagram.UncertainPublish`, error «(publicación)» de Facebook). Verificado 2026-11-15: la API
+  falló con short_2 y el respaldo lo publicó.
 - YouTube: si Google muestra «Acceso bloqueado», publicar la app OAuth (Google Auth Platform → Público → Publicar app).
 
 ## Arquitectura (agente/)
