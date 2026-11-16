@@ -34,6 +34,45 @@ def _z(values):
     return [(v - mu) / sd for v in values]
 
 
+def search_query(cfg: dict, log=None) -> str:
+    """Término de búsqueda en el idioma de la audiencia. Con el nicho escrito en otro idioma («Historias de terror»
+    para un canal en inglés), YouTube devolvía tendencias de otro público. Manual (content.search_query) o traducido
+    una vez con Gemini y guardado en caché."""
+    import json
+    from .paths import CACHE_DIR
+    c = cfg["content"]
+    manual = (c.get("search_query") or "").strip()
+    if manual:
+        return manual
+    niche, lang = c["niche"].strip(), c["language"]
+    cache = CACHE_DIR / "search_query.json"
+    try:
+        saved = json.loads(cache.read_text(encoding="utf-8"))
+    except Exception:
+        saved = {}
+    key = f"{lang}|{niche}"
+    if key in saved:
+        return saved[key]
+    if not S.get_secret("gemini_api_key"):
+        return niche
+    try:
+        from . import gemini
+        from .catalog import LANGUAGES
+        text, _ = gemini.generate(gemini.chain(None, gemini.LITE_FIRST),
+                                  f"Convert this YouTube search topic into the phrase a {LANGUAGES[lang]}-speaking viewer "
+                                  f"would type to find such videos, in {LANGUAGES[lang]} (language code {lang}). If it is "
+                                  f"already right, return it unchanged. Output only the phrase, 2-5 words.\nTopic: {niche}",
+                                  thinking="low", timeout=60, max_tokens=200)
+        q = text.strip().strip('"«»').splitlines()[0][:80] or niche
+    except Exception:
+        return niche
+    saved[key] = q
+    cache.write_text(json.dumps(saved, ensure_ascii=False, indent=2), encoding="utf-8")
+    if log and q.lower() != niche.lower():
+        log(f"Búsqueda de tendencias en el idioma de la audiencia: «{q}» (nicho: «{niche}»).")
+    return q
+
+
 def research(run: Run, cfg: dict) -> dict:
     sid = "research"
     api_key = S.get_secret("youtube_api_key")
@@ -46,14 +85,15 @@ def research(run: Run, cfg: dict) -> dict:
 
     yt = build("youtube", "v3", developerKey=api_key, cache_discovery=False)
     since = datetime.now(timezone.utc) - timedelta(days=int(content["research_days"]))
+    query = search_query(cfg, lambda m: run.info(m, sid))
     params = dict(
-        q=content["niche"], part="id", type="video", order="viewCount", maxResults=25,
+        q=query, part="id", type="video", order="viewCount", maxResults=25,
         publishedAfter=since.strftime("%Y-%m-%dT%H:%M:%SZ"),
         relevanceLanguage=content["language"],
     )
     if content.get("region_code"):
         params["regionCode"] = content["region_code"]
-    run.step_progress(sid, 0.2, f"Buscando «{content['niche']}» (últimos {content['research_days']} días)")
+    run.step_progress(sid, 0.2, f"Buscando «{query}» (últimos {content['research_days']} días)")
     search = yt.search().list(**params).execute()
     ids = [it["id"]["videoId"] for it in search.get("items", [])]
     if not ids:

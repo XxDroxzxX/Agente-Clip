@@ -755,6 +755,7 @@ function renderSettings() {
       ${field("content.audience", "Audiencia")}
       ${field("content.language", "Idioma de los videos", "select", { options: cfg.catalog.languages, help: "Cambia también la voz por una de este idioma." })}
       ${field("content.region_code", "Región de tendencias", "select", { options: cfg.catalog.regions, help: "País cuyos videos populares se analizan en YouTube." })}
+      ${field("content.search_query", "Búsqueda de tendencias (opcional)", "text", { placeholder: "vacío = el nicho, en el idioma de los videos", help: "Lo que tu audiencia escribiría en YouTube, en su idioma. Si lo dejas vacío, la app traduce el nicho sola." })}
       ${numSelect("content.research_days", "Analizar videos de los últimos", [[7, "7 días"], [14, "14 días"], [30, "30 días"], [60, "60 días"], [90, "90 días"], [180, "180 días"]])}
       ${field("content.extra_instructions", "Instrucciones adicionales para el guion", "textarea", { full: true, help: "Ej.: «Tono cercano, recetas de menos de 20 minutos, sin ingredientes caros»." })}
     </div>

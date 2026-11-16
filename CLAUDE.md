@@ -96,6 +96,21 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   `video_visibility_container` con opciones «Todo el mundo / Amigos / Solo tú» (ya no hay «Seguidores»). Publicación
   real «Solo yo» verificada (19 s). El id se busca por el texto (`_tt_find_post`): un video anclado sale primero.
 
+## Métricas y audiencia (2026-11-16)
+
+- Métricas de Meta: sin `read_insights` (Facebook) ni `instagram_manage_insights` (Instagram) la API rechaza las
+  vistas; antes se guardaban como 0 y habrían enseñado mal al aprendizaje. Ahora quedan desconocidas (`views=None`,
+  no cuentan) y `metrics.collect` avisa qué permiso falta. Instagram por navegador guarda el id de la API
+  (`instagram.media_id_for` por el código del enlace).
+- Investigación: el nicho se traduce al idioma de la audiencia (`research.search_query`, caché en
+  `data/cache/search_query.json`, o `content.search_query` manual); con «Historias de terror» en un canal en inglés
+  salían tendencias en español.
+- Guion: compuertas de retención (gancho de 5-8 palabras en los 2 primeros s, primera escena ≤ 14 palabras,
+  confirmación antes de los 5 s, cierre en bucle), Shorts de 70-100 palabras (salían de 54-56 s), títulos ≤ 60
+  caracteres con el término de búsqueda y descripción con él en los primeros 160. `gemini-4-hydrogen` a veces corta
+  la respuesta (JSON válido sin Shorts): `scriptgen._gaps` lo detecta y se reintenta hasta 2 veces con el siguiente
+  modelo de la cadena.
+
 ## Cómo verificar (método acordado)
 
 - Pruebas sin red: `venv\Scripts\python.exe -m unittest discover -s tests`.

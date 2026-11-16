@@ -40,6 +40,7 @@ DEFAULTS: dict[str, Any] = {
         "niche": "cocina vegana",
         "language": "es",
         "region_code": "",          # p.ej. "MX", "CO", "ES"; vacío = global
+        "search_query": "",         # búsqueda de tendencias; vacío = el nicho traducido al idioma del video
         "research_days": 30,
         "audience": "público hispanohablante general",
         "extra_instructions": "",

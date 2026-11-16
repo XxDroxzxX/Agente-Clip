@@ -1,6 +1,7 @@
 """Generación del guion con IA (Claude API u Ollama local) en formato estructurado."""
 from __future__ import annotations
 
+import copy
 import json
 
 import requests
@@ -47,9 +48,10 @@ class MusicBrief(BaseModel):
 
 
 class VideoPlan(BaseModel):
-    title: str = Field(description="Título atractivo, máximo 90 caracteres.")
+    title: str = Field(description="Título atractivo de máximo 60 caracteres, con el término que busca la audiencia "
+                                   "en las primeras palabras.")
     description: str = Field(description="Descripción para la publicación, 2-4 frases.")
-    hashtags: list[str] = Field(description="5 a 8 hashtags relevantes, con #.")
+    hashtags: list[str] = Field(description="3 a 6 hashtags relevantes, con #.")
     visual_bible: str = Field(default="", description="EN INGLÉS, 2-3 frases que fijan el aspecto del video para el generador IA: "
                               "sujeto o personaje principal (especie/edad, rasgos, ropa, colores), lugar y época, estilo visual y paleta. "
                               "Se agrega a cada toma para que el personaje y el ambiente no cambien.")
@@ -73,7 +75,10 @@ SYSTEM = """Eres un guionista experto en contenido de video corto y largo para Y
 Escribes narraciones naturales para voz en off: frases cortas, ritmo ágil, lenguaje hablado.
 Reglas:
 - La narración es SOLO lo que se dice en voz alta: sin encabezados, sin "Escena 1", sin emojis, sin indicaciones de cámara, sin markdown.
-- La primera escena debe enganchar en los primeros 2 segundos.
+- Retención por compuertas: 0-2 s gancho (la primera frase dice la promesa en 5-8 palabras, sin introducción ni
+  saludo); 2-5 s confirmación (prueba concreta de que la promesa es real); luego el desarrollo, una idea por escena;
+  cierre en bucle (la última frase conecta con la primera para que se vuelva a ver) o una sola llamada a la acción.
+- La primera escena tiene como máximo 14 palabras.
 - Cada escena dura entre 5 y 12 segundos de narración (≈12-30 palabras).
 - Los visual_query describen cosas que existen en bancos de video (personas, objetos, lugares, acciones), en inglés,
   y nunca contradicen el nicho (p. ej. en cocina vegana: nada de carne, pescado, huevos ni lácteos animales).
@@ -109,9 +114,16 @@ def build_prompt(cfg: dict, research: dict, hook_style: str) -> str:
     else:
         lines.append("VIDEO LARGO: no se necesita; devuelve long_video con una sola escena breve.")
     n = int(v["shorts_count"])
-    lines.append(f"SHORTS (vertical): exactamente {n}. Cada uno es independiente, de 30 a 50 segundos (≈80-120 palabras), "
-                 "con un gancho propio, una sola idea potente y un cierre que invite a comentar o seguir.")
+    lines.append(f"SHORTS (vertical): exactamente {n}. Cada uno es independiente, de 30 a 45 segundos (≈70-100 palabras "
+                 "en total; no más: la voz real es más lenta de lo que parece), con un gancho propio, una sola idea potente "
+                 "y un cierre en bucle o que invite a comentar o seguir.")
     lines.append("")
+    lines.append("TÍTULO Y DESCRIPCIÓN (búsqueda en YouTube y Google): el título, de máximo 60 caracteres, incluye en sus "
+                 "primeras palabras el término que la audiencia escribiría para encontrar el video (sale del nicho y de los "
+                 "títulos en tendencia), con lenguaje natural, sin mayúsculas sostenidas ni relleno de palabras clave. La "
+                 "primera frase de la descripción (máximo 160 caracteres) repite ese término y uno secundario de forma "
+                 "natural. Hashtags: 3-6 relevantes; en los Shorts incluye #shorts. Título, miniatura y gancho cuentan la "
+                 "misma promesa.")
     lines.append("MINIATURA: en cada video, `thumbnail_text` con 2-5 palabras que despierten curiosidad (no repitas el título).")
     lines.append("RESPALDO VISUAL: en `broll_queries` 3-5 búsquedas genéricas de stock en inglés que siempre encajen con el nicho.")
     if v.get("music", True):
@@ -206,6 +218,20 @@ def _gemini(cfg: dict, prompt: str) -> tuple[ScriptPackage, str]:
 PROVIDERS = {"claude": ("Claude", _claude), "ollama": ("Ollama", _ollama), "gemini": ("Gemini", _gemini)}
 
 
+def _gaps(pkg: "ScriptPackage", cfg: dict) -> list[str]:
+    """Lo que le falta al guion respecto de lo pedido (vacío si está completo)."""
+    v, out = cfg["video"], []
+    n = int(v["shorts_count"])
+    if len(pkg.shorts) < n:
+        out.append(f"llegaron {len(pkg.shorts)} de {n} Shorts")
+    if v["long_enabled"]:
+        target = v["long_minutes"] * WORDS_PER_MINUTE
+        words = sum(len(s.narration.split()) for s in pkg.long_video.scenes)
+        if words < target * 0.5:
+            out.append(f"el video largo tiene {words} palabras de unas {target:.0f}")
+    return out
+
+
 def generate(run: Run, cfg: dict, research: dict, hook_style: str) -> ScriptPackage:
     sid = "script"
     prompt = build_prompt(cfg, research, hook_style)
@@ -213,6 +239,30 @@ def generate(run: Run, cfg: dict, research: dict, hook_style: str) -> ScriptPack
     label, fn = PROVIDERS.get(provider, PROVIDERS["claude"])
     run.step_progress(sid, 0.15, f"Escribiendo con {label}…", force=True)
     pkg, note = fn(cfg, prompt)
+    gaps = _gaps(pkg, cfg)
+    for attempt in range(2):  # a veces el modelo corta la respuesta antes de tiempo: se pide de nuevo
+        if not gaps:
+            break
+        run.warn(f"El guion vino incompleto ({'; '.join(gaps)}); se pide de nuevo.", sid)
+        retry_cfg = copy.deepcopy(cfg)
+        if provider == "gemini":  # otro modelo de la cadena gratuita (el mismo suele repetir el corte)
+            from . import gemini
+            chain = gemini.chain(cfg["llm"].get("gemini_model"))
+            retry_cfg["llm"]["gemini_model"] = chain[min(attempt + 1, len(chain) - 1)]
+        try:
+            reminder = ("\n\nIMPORTANTE: una respuesta anterior vino incompleta (" + "; ".join(gaps)
+                        + "). Entrega el paquete completo: la cantidad exacta de Shorts y la duración pedida.")
+            pkg2, note2 = fn(retry_cfg, prompt + reminder)
+        except Exception as e:
+            run.warn(f"El nuevo intento falló ({str(e)[:120]}).", sid)
+            continue
+        if len(_gaps(pkg2, cfg)) < len(gaps) or (len(pkg2.shorts) > len(pkg.shorts)):
+            pkg, note = pkg2, note2
+            gaps = _gaps(pkg, cfg)
+    if gaps:
+        run.warn(f"El guion sigue incompleto ({'; '.join(gaps)}); se continúa con lo que hay.", sid)
+    if int(cfg["video"]["shorts_count"]) > 0 and not pkg.shorts:
+        raise RuntimeError("La IA no escribió ningún Short. Vuelve a intentar el run; si se repite, prueba otro modelo.")
 
     # limpieza mínima y validación
     n = int(cfg["video"]["shorts_count"])

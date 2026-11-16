@@ -69,7 +69,7 @@ def recompute(min_age_hours: float) -> dict:
     latest: dict[tuple, dict] = {}
     for s in load_snapshots():
         key = (s["platform"], s["platform_id"])
-        if key in hist and s.get("age_hours", 0) >= min_age_hours:
+        if key in hist and s.get("age_hours", 0) >= min_age_hours and s.get("views") is not None:
             if key not in latest or s["ts"] > latest[key]["ts"]:
                 latest[key] = s
 

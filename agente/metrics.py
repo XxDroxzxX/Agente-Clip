@@ -34,9 +34,18 @@ def collect(run: Run, cfg: dict) -> dict:
         if not by_platform.get(name):
             continue
         run.step_progress(sid, prog, f"{label}: {len(by_platform[name])} publicaciones")
+        mod = facebook if name == "facebook" else instagram
+        mod.MISSING.clear()
         stats = fetch([h["platform_id"] for h in by_platform[name]], cfg["publish"]["facebook_graph_version"])
+        if mod.MISSING:
+            run.warn(f"{label}: no se pudieron leer las vistas porque al token le falta el permiso "
+                     f"{', '.join(sorted(mod.MISSING))}. Genera el token de nuevo incluyéndolo (Explorador de la Graph "
+                     f"API) y guárdalo en Credenciales; mientras tanto, {label} no cuenta para el aprendizaje.", sid)
+        unresolved = [h for h in by_platform[name] if h["platform_id"] not in stats]
+        if unresolved and name == "instagram":
+            run.warn(f"Instagram: {len(unresolved)} publicación(es) sin métricas (id no reconocido por la API).", sid)
         for h in by_platform[name]:
-            if h["platform_id"] in stats:
+            if h["platform_id"] in stats and stats[h["platform_id"]]["views"] is not None:
                 rows.append({"ts": now, "platform": name, "platform_id": h["platform_id"],
                              "age_hours": round((now - h["published_at"]) / 3600, 1), **stats[h["platform_id"]]})
     if by_platform.get("tiktok"):

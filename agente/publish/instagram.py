@@ -97,6 +97,21 @@ def upload_reel(video: Path, caption: str, version: str, on_progress: Callable[[
             "privacy": "public", "note": ""}
 
 
+MISSING: set[str] = set()  # permisos que faltaron en la última lectura de métricas
+
+
+def media_id_for(shortcode: str, version: str) -> str | None:
+    """Id de la API de una publicación hecha por navegador (que solo da el código del enlace /reel/<code>/)."""
+    try:
+        token = facebook._token()
+        ig = account(version)
+        data = requests.get(f"{GRAPH}/{version}/{ig['id']}/media", timeout=30, params={
+            "fields": "id,permalink", "limit": 25, "access_token": token}).json().get("data", [])
+        return next((m["id"] for m in data if f"/{shortcode}/" in (m.get("permalink") or "")), None)
+    except Exception:
+        return None
+
+
 def fetch_stats(ids: list[str], version: str) -> dict[str, dict]:
     token = S.get_secret("facebook_page_token")
     if not token:
@@ -108,11 +123,13 @@ def fetch_stats(ids: list[str], version: str) -> dict[str, dict]:
                 "fields": "like_count,comments_count", "access_token": token}).json()
             if "error" in base:
                 continue
-            views = 0
+            views = None  # desconocidas: sin el permiso de estadísticas Meta no las entrega (no es lo mismo que 0)
             ins = requests.get(f"{GRAPH}/{version}/{mid}/insights", timeout=30, params={
                 "metric": "views", "access_token": token}).json()
+            if "error" in ins:
+                MISSING.add("instagram_manage_insights")
             for m in ins.get("data", []):
-                views = max(views, int((m.get("values") or [{}])[0].get("value", 0) or 0))
+                views = max(views or 0, int((m.get("values") or [{}])[0].get("value", 0) or 0))
             out[mid] = {"views": views, "likes": base.get("like_count", 0), "comments": base.get("comments_count", 0)}
         except Exception:
             continue

@@ -438,6 +438,10 @@ def _instagram(run: Run, p: dict, video, caption: str, prog, key: str) -> dict:
         ai = "Generado con IA" in (run.state["items"].get(key, {}).get("credits") or [])
         res = browser.upload_instagram(video, caption, prog, visible=bool(p.get("browser_visible")), ai_generated=ai)
         res["note"] = (res.get("note", "") + " Publicado por navegador porque la API de Meta falló.").strip()
+        code = (res.get("url") or "").rstrip("/").rsplit("/", 1)[-1]
+        api_id = instagram.media_id_for(code, p["facebook_graph_version"]) if code else None
+        if api_id:  # con el id de la API se pueden leer sus métricas
+            res["platform_id"] = api_id
         return res
 
 

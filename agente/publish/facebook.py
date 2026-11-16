@@ -157,6 +157,9 @@ def upload_reel(video: Path, description: str, version: str, on_progress: Callab
     return {"platform_id": vid, "url": f"https://www.facebook.com/reel/{vid}", "privacy": "public", "note": ""}
 
 
+MISSING: set[str] = set()  # permisos que faltaron en la última lectura de métricas
+
+
 def fetch_stats(ids: list[str], version: str) -> dict[str, dict]:
     token = S.get_secret("facebook_page_token")
     if not token:
@@ -169,12 +172,14 @@ def fetch_stats(ids: list[str], version: str) -> dict[str, dict]:
                 "access_token": token}, timeout=30).json()
             if "error" in base:
                 continue
-            views = 0
+            views = None  # desconocidas si falta read_insights (no es lo mismo que 0)
             ins = requests.get(f"https://graph.facebook.com/{version}/{vid}/video_insights", params={
                 "metric": "total_video_views,fb_reels_total_plays", "access_token": token}, timeout=30).json()
+            if "error" in ins:
+                MISSING.add("read_insights")
             for m in ins.get("data", []):
                 vals = m.get("values") or [{}]
-                views = max(views, int(vals[0].get("value", 0) or 0))
+                views = max(views or 0, int(vals[0].get("value", 0) or 0))
             out[vid] = {
                 "views": views,
                 "likes": base.get("likes", {}).get("summary", {}).get("total_count", 0),
