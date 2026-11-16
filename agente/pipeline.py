@@ -332,7 +332,7 @@ def _review(run: Run, cfg: dict, key: str, video, plan, total: float, portrait: 
 
 
 def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
-    from .publish import browser, facebook, instagram, tiktok, youtube
+    from .publish import browser, tiktok, youtube
 
     p = cfg["publish"]
     run.step_start("publish", "Subiendo a las plataformas")

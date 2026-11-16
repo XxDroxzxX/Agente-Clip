@@ -695,16 +695,15 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
     ai_idx = {id(shots[i]): i for i in ai_shot_ids(shots, cfg)} if ai else {}
     rest = [s for s in shots if id(s) not in ai_idx]
     cap = ai_cap(cfg)
-    rescue = None
-    if ai and cfg["video"].get("ai_select", "smart") == "smart":
-        def rescue(group: list[Shot]) -> bool:
-            """El stock no tiene nada que encaje: la escena pasa a la IA si queda cupo."""
-            if cap and len(ai_idx) + len(group) > cap:
-                return False
-            for s in group:
-                ai_idx[id(s)] = orig[id(s)]
-                s.rescued = True
-            return True
+    def take_for_ai(group: list[Shot]) -> bool:
+        """El stock no tiene nada que encaje: la escena pasa a la IA si queda cupo."""
+        if cap and len(ai_idx) + len(group) > cap:
+            return False
+        for s in group:
+            ai_idx[id(s)] = orig[id(s)]
+            s.rescued = True
+        return True
+    rescue = take_for_ai if ai and cfg["video"].get("ai_select", "smart") == "smart" else None
     share = len(rest) / max(1, len(shots))
     if rest and stock:
         assign_stock(rest, stock, cfg, portrait, log, lambda p: progress(p * share), broll, rescue)

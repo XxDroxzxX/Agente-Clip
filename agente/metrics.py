@@ -49,7 +49,24 @@ def collect(run: Run, cfg: dict) -> dict:
                 rows.append({"ts": now, "platform": name, "platform_id": h["platform_id"],
                              "age_hours": round((now - h["published_at"]) / 3600, 1), **stats[h["platform_id"]]})
     if by_platform.get("tiktok"):
-        run.info("TikTok: la Content Posting API no expone métricas; se omiten.", sid)
+        from .publish import browser
+        if not browser.status("tiktok").get("connected"):
+            run.info("TikTok: sin sesión en el navegador no hay métricas (inicia sesión en Conexiones).", sid)
+        else:
+            run.step_progress(sid, 0.9, f"TikTok: {len(by_platform['tiktok'])} publicaciones (TikTok Studio)")
+            try:
+                stats = browser.tiktok_stats([h["platform_id"] for h in by_platform["tiktok"]])
+            except Exception as e:
+                run.warn(f"TikTok: no se pudieron leer las métricas ({str(e)[:160]}).", sid)
+                stats = {}
+            for h in by_platform["tiktok"]:
+                st = stats.get(str(h["platform_id"]))
+                if st:
+                    rows.append({"ts": now, "platform": "tiktok", "platform_id": h["platform_id"],
+                                 "age_hours": round((now - h["published_at"]) / 3600, 1), **st})
+            missing = len(by_platform["tiktok"]) - sum(1 for h in by_platform["tiktok"] if str(h["platform_id"]) in stats)
+            if missing:
+                run.info(f"TikTok: {missing} publicación(es) sin encontrar en TikTok Studio (id no reconocido o borrada).", sid)
 
     if rows:
         learning.append_snapshots(rows)

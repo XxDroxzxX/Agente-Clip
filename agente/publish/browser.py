@@ -443,6 +443,46 @@ def upload_tiktok(video: Path, caption: str, privacy: str, on_progress: Callable
             "via": "navegador"}
 
 
+def tiktok_stats(ids: list[str], max_scrolls: int = 8) -> dict[str, dict]:
+    """Métricas de TikTok desde TikTok Studio con la sesión guardada (la API oficial exige una app aprobada).
+    Lee la lista que la propia página recibe de TikTok (`item_list`), no la tabla en pantalla: es más estable."""
+    want = {str(i) for i in ids if str(i).isdigit()}
+    found: dict[str, dict] = {}
+    if not want:
+        return found
+    with _browser("tiktok", visible=False) as ctx:
+        if not _logged_in(ctx, "tiktok"):
+            raise BrowserError("TikTok no tiene sesión iniciada en el navegador; inicia sesión en Conexiones.")
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+
+        def on_response(r):
+            if "/creator/manage/item_list" not in r.url:
+                return
+            try:
+                items = r.json().get("item_list") or []
+            except Exception:
+                return
+            for it in items:
+                iid = str(it.get("item_id", ""))
+                if iid in want:
+                    found[iid] = {"views": int(it.get("play_count") or 0), "likes": int(it.get("like_count") or 0),
+                                  "comments": int(it.get("comment_count") or 0),
+                                  "shares": int(it.get("share_count") or 0), "saves": int(it.get("favorite_count") or 0)}
+
+        page.on("response", on_response)
+        page.goto("https://www.tiktok.com/tiktokstudio/content", wait_until="domcontentloaded")
+        page.wait_for_timeout(8000)
+        if _session_expired(page, "tiktok"):
+            _save_status("tiktok", connected=False)
+            raise BrowserError("La sesión de TikTok venció. Vuelve a iniciar sesión en Configuración → Conexiones.")
+        for _ in range(max_scrolls):  # la lista carga por páginas al bajar
+            if want <= set(found):
+                break
+            page.mouse.wheel(0, 4000)
+            page.wait_for_timeout(2500)
+    return found
+
+
 # ── Instagram (respaldo cuando falla la API de Meta) ───
 
 IG_HOME = "https://www.instagram.com/"

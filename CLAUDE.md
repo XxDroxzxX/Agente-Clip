@@ -102,6 +102,11 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   vistas; antes se guardaban como 0 y habrían enseñado mal al aprendizaje. Ahora quedan desconocidas (`views=None`,
   no cuentan) y `metrics.collect` avisa qué permiso falta. Instagram por navegador guarda el id de la API
   (`instagram.media_id_for` por el código del enlace).
+- Métricas de TikTok sin API aprobada: `browser.tiktok_stats` abre TikTok Studio con la sesión guardada y lee la
+  respuesta `/tiktok/creator/manage/item_list/v1/` (item_id, play_count, like_count, comment_count, share_count,
+  favorite_count). En el aprendizaje, compartir y guardar valen el doble que un «me gusta» (`learning.reward`).
+  Primeras cifras reales (17 h): TikTok e Instagram 86-135 vistas por Short, Facebook 25-39, YouTube 1-3 (subidos
+  en privado por la configuración del usuario y abiertos a mano después).
 - Investigación: el nicho se traduce al idioma de la audiencia (`research.search_query`, caché en
   `data/cache/search_query.json`, o `content.search_query` manual); con «Historias de terror» en un canal en inglés
   salían tendencias en español.

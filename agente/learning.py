@@ -58,9 +58,15 @@ def append_snapshots(rows: list[dict]) -> None:
 
 # ── aprendizaje ───────────────────────────────────────
 
-def reward(views: int, likes: int, comments: int) -> float:
-    eng = (likes + comments) / views if views else 0.0
+def reward(views: int, likes: int, comments: int, shares: int = 0, saves: int = 0) -> float:
+    """Vistas en escala logarítmica por la interacción. Compartir y guardar (TikTok) valen el doble que un «me gusta»:
+    son señales más fuertes de interés."""
+    eng = (likes + comments + 2 * (shares + saves)) / views if views else 0.0
     return math.log1p(views) * (1 + 5 * eng)
+
+
+def _r(s: dict) -> float:
+    return reward(s["views"], s["likes"], s["comments"], s.get("shares", 0), s.get("saves", 0))
 
 
 def recompute(min_age_hours: float) -> dict:
@@ -76,7 +82,7 @@ def recompute(min_age_hours: float) -> dict:
     # normaliza por plataforma para que una no domine a otra
     by_platform = defaultdict(list)
     for key, s in latest.items():
-        by_platform[key[0]].append(reward(s["views"], s["likes"], s["comments"]))
+        by_platform[key[0]].append(_r(s))
     stats_p = {p: (sum(v) / len(v), (max(v) - min(v)) or 1.0) for p, v in by_platform.items()}
 
     styles = defaultdict(lambda: {"n": 0, "sum": 0.0})
@@ -85,7 +91,7 @@ def recompute(min_age_hours: float) -> dict:
         if not style:
             continue
         mean, rng = stats_p[key[0]]
-        r = (reward(s["views"], s["likes"], s["comments"]) - mean) / rng
+        r = (_r(s) - mean) / rng
         styles[style]["n"] += 1
         styles[style]["sum"] += r
 
@@ -94,7 +100,7 @@ def recompute(min_age_hours: float) -> dict:
     for key, s in latest.items():
         h = hist[key]
         mean, rng = stats_p[key[0]]
-        r = (reward(s["views"], s["likes"], s["comments"]) - mean) / rng
+        r = (_r(s) - mean) / rng
         for dim, val in _traits(h).items():
             if val is not None:
                 dims[dim][val]["n"] += 1
@@ -170,5 +176,5 @@ def top_own_titles(n: int = 5) -> list[str]:
         key = (s["platform"], s["platform_id"])
         if key in hist:
             t = hist[key].get("title", "")
-            best[t] = max(best.get(t, 0), reward(s["views"], s["likes"], s["comments"]))
+            best[t] = max(best.get(t, 0), _r(s))
     return [t for t, _ in sorted(best.items(), key=lambda x: -x[1])[:n]]
