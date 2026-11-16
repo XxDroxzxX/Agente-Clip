@@ -36,6 +36,15 @@ Instalación (una vez, ~20 GB):
    - `models\vae\wan2.2_vae.safetensors` (huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged, carpeta `split_files/vae`)
 4. En la interfaz elige *Video IA local en tu GPU (ComfyUI)* e indica la carpeta de ComfyUI portable.
 
+**Personaje consistente (opcional, gratis):** para que el personaje tenga la misma cara y ropa en todas las escenas, se crea una imagen de referencia por video con **Qwen-Image-Edit-2511** (licencia Apache 2.0: uso comercial permitido) y cada escena parte de ella. Descarga en la carpeta de ComfyUI (unos 15 GB):
+
+- `models\unet\qwen-image-edit-2511-Q2_K.gguf` (huggingface.co/unsloth/Qwen-Image-Edit-2511-GGUF)
+- `models\text_encoders\Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf` y `mmproj-BF16.gguf` renombrado a `Qwen2.5-VL-7B-Instruct-mmproj-BF16.gguf` (huggingface.co/unsloth/Qwen2.5-VL-7B-Instruct-GGUF)
+- `models\loras\Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors` (huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning)
+- `models\vae\qwen_image_vae.safetensors` (huggingface.co/Comfy-Org/Qwen-Image_ComfyUI, carpeta `split_files/vae`)
+
+En una RTX 4050 de 6 GB cada imagen tarda 4-7 min (la referencia, una vez por video). Se activa en *Material visual → Personaje consistente* (motor «Automático» o «Local»).
+
 El workflow está en `agente/workflows/wan22_ti2v_5b.json` (formato API de ComfyUI). Puedes usar otro (por ejemplo, con un LoRA de estilo anime) exportándolo con *Export (API)* y poniendo los marcadores `{{prompt}}`, `{{seed}}`, `{{width}}`, `{{height}}`, `{{frames}}`, `{{fps}}`, `{{steps}}` y `{{start_image}}` (este último en un nodo LoadImage conectado a una entrada opcional).
 
 **Selección inteligente de clips:** por cada escena se buscan varios candidatos y una IA con visión mira sus miniaturas y los ordena según lo que dice la narración (que muestre la acción concreta, calidad, sin marcas de agua). Usa Gemini (gratis) si hay clave, o Claude Haiku. Si no hay ninguna o se agota la cuota, se usa el orden del banco de clips. Se configura en *Video y voz → Selección inteligente de clips*.

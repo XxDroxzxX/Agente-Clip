@@ -135,6 +135,13 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   video). El botón «Probar» lista los modelos sin generar (no confirma cuota). Verificado 2026-11-16 con la clave
   de la cuenta Gemini Plus: ve 6 modelos de imagen pero todos dan 429 con cuota «...-FreeTier» (límite 0) y no
   lista Veo: la suscripción de la app no se aplica a la API; hace falta facturación en el proyecto de la clave.
+- **Personaje consistente local** (2026-11-16): Qwen-Image-Edit-2511 (Apache 2.0; Flux Kontext descartado: su licencia
+  exige marcar la salida como IA y excluye uso comercial) en GGUF Q2_K (7,7 GB) + Qwen2.5-VL-7B Q4_K_M (4,7 GB) con
+  su mmproj (el nombre del mmproj debe contener el del codificador) + LoRA Lightning 4 pasos + `qwen_image_vae`.
+  Workflow `qwen_image_edit_2511.json`, `ComfyVideo.edit_image`, 576x1024. Medido en la RTX 4050: referencia 5,4 min
+  (con arranque), escenas 4-7 min, animación Wan desde esa imagen 7,3 min; la cara, el pelo y la ropa se mantienen
+  entre escenas. Como Qwen y Wan no caben juntos en 6 GB, primero se hacen todas las imágenes clave
+  (`visuals._chain_starts`) y luego todas las animaciones. `video.character_engine`: auto | local | nanobanana.
 - Investigación de nicho (`agente/niche.py`, Configuración → Investigar un nicho): la IA propone 6 nichos, cada uno se
   mide en YouTube (mediana de vistas/día, interacción, vistas por suscriptor, % de canales pequeños, % cortos;
   ~105 unidades de cuota por nicho) y la IA recomienda configuración; «Usar este nicho» la aplica (si recomienda
