@@ -122,6 +122,11 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   vistas/día). Instagram por navegador elige «Original» en «Recortar» (por defecto recorta a 1:1) y lo comprueba con
   la forma de la vista previa. Apagado automático (`general.shutdown_after`): solo en la ejecución diaria
   (`run_day.ps1` pasa `--scheduled`), `shutdown /s /t 120`, cancelable con `shutdown /a`.
+- Hora de publicación (`publish.publish_time`, «HH:MM» del PC): con publicación automática, los videos listos
+  esperan (`pipeline.wait_publish_time`) y salen en todas las redes a la vez; si ya pasó la hora, enseguida.
+- Imagen con personaje de referencia («Nano Banana», `gemini-3.1-flash-image` y similares): la key del usuario los
+  ve, pero el plan gratuito responde 429 (requiere facturación). Alternativa local por probar: un modelo de edición
+  de imagen con referencia en ComfyUI (p. ej. Flux Kontext GGUF), pesado para 6 GB.
 - Investigación de nicho (`agente/niche.py`, Configuración → Investigar un nicho): la IA propone 6 nichos, cada uno se
   mide en YouTube (mediana de vistas/día, interacción, vistas por suscriptor, % de canales pequeños, % cortos;
   ~105 unidades de cuota por nicho) y la IA recomienda configuración; «Usar este nicho» la aplica (si recomienda

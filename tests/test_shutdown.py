@@ -40,5 +40,16 @@ class ShutdownTest(unittest.TestCase):
         self.assertEqual(self._main(["--run-id", "x", "--scheduled"], False), [])
 
 
+
+class PublishTimeTest(unittest.TestCase):
+    def test_delay(self):
+        from datetime import datetime
+        base = datetime(2026, 11, 16, 15, 0).timestamp()
+        self.assertEqual(pipeline.publish_delay(base, "19:00"), 4 * 3600)
+        self.assertEqual(pipeline.publish_delay(base, "09:00"), 0)   # ya pasó: se publica enseguida
+        self.assertEqual(pipeline.publish_delay(base, ""), 0)
+        self.assertEqual(pipeline.publish_delay(base, "xx"), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

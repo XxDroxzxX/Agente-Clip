@@ -103,6 +103,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "publish": {
         "auto_publish": False,
+        "publish_time": "",             # «HH:MM»: los videos listos esperan hasta esa hora para publicarse (vacío = enseguida)
         "youtube": True,
         "youtube_method": "browser",    # browser (YouTube Studio con tu sesión) | api (Data API; sin auditoría queda privado)
         "youtube_privacy": "private",   # private | unlisted | public
@@ -245,6 +246,10 @@ def validate(cfg: dict, prev: dict | None = None) -> tuple[dict, list[str]]:
         fixes.append(f"La voz no era de {catalog.LANGUAGES[lang].lower()}; se eligió {catalog.voice_label(v['name'])}.")
     if v.get("gemini_voice") not in catalog.GEMINI_VOICE_INFO:
         v["gemini_voice"] = DEFAULTS["voice"]["gemini_voice"]
+    pt = str(p.get("publish_time") or "")
+    if pt and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", pt):
+        fixes.append(f"Hora de publicación «{pt}» inválida; se publica apenas estén listos.")
+        p["publish_time"] = ""
     if not re.fullmatch(r"v\d{2}\.0", str(p.get("facebook_graph_version", ""))):
         fixes.append(f"Versión de Graph API «{p.get('facebook_graph_version')}» con formato inválido; se usa v24.0.")
         p["facebook_graph_version"] = "v24.0"

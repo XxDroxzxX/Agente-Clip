@@ -883,6 +883,7 @@ function renderSettings() {
   <div class="card" id="s-publish">
     <div class="card-head"><h2>Publicación</h2></div>
     ${toggle("publish.auto_publish", "Publicar automáticamente", "Si está desactivado, revisas los videos y publicas con un clic desde el panel. La ejecución diaria programada usa este ajuste.")}
+    ${d.publish.auto_publish ? `<div class="form-grid">${field("publish.publish_time", "Hora de publicación", "select", { options: [["", "Apenas estén listos"], ...["07:00", "09:00", "12:00", "15:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00"].map((h) => [h, h])], help: "Los videos esperan hasta esa hora (la de este PC) para salir en todas las redes a la vez. Para audiencias de Estados Unidos y Latinoamérica suele rendir la tarde-noche (18:00-21:00). Si quedan listos más tarde, se publican enseguida." })}</div>` : ""}
     <div class="platform-block" style="margin-top:12px">
       ${toggle("publish.youtube", "YouTube", "Video largo + Shorts.")}
       ${d.publish.youtube ? `<div class="form-grid">

@@ -470,6 +470,33 @@ def _facebook(run: Run, p: dict, video, plan, desc: str, tags: str, prog, key: s
         return res
 
 
+def publish_delay(now: float, at: str) -> float:
+    """Segundos hasta la hora «HH:MM» de hoy; 0 si no hay hora, es inválida o ya pasó (se publica enseguida)."""
+    from datetime import datetime
+    try:
+        h, m = (int(x) for x in at.split(":"))
+        target = datetime.fromtimestamp(now).replace(hour=h, minute=m, second=0, microsecond=0)
+    except (ValueError, AttributeError):
+        return 0.0
+    return max(0.0, target.timestamp() - now)
+
+
+def wait_publish_time(run: Run, cfg: dict) -> None:
+    """Espera hasta la hora de publicación elegida (hora pico de la audiencia) para salir en todas las redes a la vez.
+    Si el video quedó listo después de esa hora, se publica enseguida."""
+    at = (cfg["publish"].get("publish_time") or "").strip()
+    delay = publish_delay(time.time(), at)
+    if delay <= 0:
+        return
+    run.step_start("publish", f"Esperando hasta las {at} para publicar")
+    run.info(f"Videos listos. Se publicarán a las {at} (hora pico elegida); faltan {delay / 60:.0f} min.", "publish")
+    end = time.time() + delay
+    while time.time() < end:
+        time.sleep(min(30.0, max(0.0, end - time.time())))
+        left = max(0.0, end - time.time())
+        run.step_progress("publish", 0.0, f"Publicación a las {at}: faltan {left / 60:.0f} min")
+
+
 def step_metrics(run: Run, cfg: dict) -> None:
     run.step_start("metrics", "Consultando métricas")
     try:
@@ -503,6 +530,7 @@ def full_run(run_id: str, publish: bool) -> int:
         shots = step_visuals(run, cfg, items, audio)
         step_render(run, cfg, items, audio, shots)
         if publish:
+            wait_publish_time(run, cfg)
             step_publish(run, cfg, respect_review=True)
         else:
             run.step_end("publish", "skipped", "Revisa los videos y publica desde la interfaz")
@@ -589,6 +617,7 @@ def resume(run_id: str) -> int:
         if steps["render"]["status"] != "done" or not all((run.dir / k / "final.mp4").is_file() for k in keys):
             step_render(run, cfg, items, audio, shots)
         if publish:
+            wait_publish_time(run, cfg)
             step_publish(run, cfg, respect_review=True)
         else:
             run.step_end("publish", "skipped", "Revisa los videos y publica desde la interfaz")
