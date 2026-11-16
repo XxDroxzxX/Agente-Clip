@@ -86,5 +86,15 @@ class VeoTest(unittest.TestCase):
         self.assertIn("plan gratuito de la API", str(gemini_media._explain(r, "Nano Banana")))
 
 
+
+class ChainStartsTest(unittest.TestCase):
+    def test_only_shots_that_start_a_chain(self):
+        shots = [visuals.Shot(scene=s, duration=4, query="q", prompt="p") for s in (0, 0, 1, 1, 2)]
+        ai_idx = {id(shots[i]): i for i in (0, 1, 2, 3)}       # la toma 4 va con stock
+        starts = visuals._chain_starts(shots, ai_idx, by_scene=True)
+        self.assertEqual([shots.index(s) for s in starts], [0, 2])
+        self.assertEqual([shots.index(s) for s in visuals._chain_starts(shots, ai_idx, by_scene=False)], [0])
+
+
 if __name__ == "__main__":
     unittest.main()

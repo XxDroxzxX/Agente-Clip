@@ -60,7 +60,8 @@ DEFAULTS: dict[str, Any] = {
         "shorts_count": 2,
         "quality": "1080p",         # 1080p | 720p
         "visual_provider": "pexels",  # pexels | fal | comfyui | veo
-        "character_ref": True,      # con la clave de imagen: personaje de referencia (Nano Banana) en las imágenes clave
+        "character_ref": True,      # personaje de referencia en las imágenes clave (misma cara en todas las escenas)
+        "character_engine": "auto",  # auto | local (Qwen-Image-Edit en ComfyUI, gratis) | nanobanana (clave de imagen)
         "veo_model": "",            # vacío = la variante «fast» más nueva disponible
         "fal_scope": "shorts",      # shorts | all (también vale para ComfyUI)
         "fal_t2v_model": "fal-ai/wan-t2v",
@@ -160,6 +161,7 @@ RULES: dict[str, tuple] = {
     "video.shorts_count": ("int", 0, 5),
     "video.quality": ("enum", ("1080p", "720p")),
     "video.visual_provider": ("enum", ("pexels", "fal", "comfyui", "veo")),
+    "video.character_engine": ("enum", ("auto", "local", "nanobanana")),
     "video.fal_scope": ("enum", ("shorts", "all")),
     "video.fal_segment_seconds": ("int", 2, 10),
     "video.ai_select": ("enum", ("smart", "hook", "all")),

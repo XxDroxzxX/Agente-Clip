@@ -197,21 +197,48 @@ class VeoVideo:
         pass
 
 
-def attach_character(ai, bible: str, out_dir: Path, portrait: bool, style: str, log) -> bool:
-    """Hace que las imágenes clave del proveedor salgan de Nano Banana con el personaje de referencia.
-    Devuelve True si quedó activo (si falla, el proveedor sigue con sus propias imágenes clave)."""
+def sheet_prompt(bible: str, style: str = "") -> str:
+    return (f"Character reference image: {bible.strip()} Show the main character clearly, front-facing, full face "
+            f"and outfit visible, neutral pose, plain background matching the setting. {style}. "
+            f"Photorealistic consistent design, no text.")
+
+
+def scene_prompt(prompt: str, with_ref: bool) -> str:
+    return (f"{prompt.strip()} Keep exactly the same character as in the reference image (same face, hair, age and "
+            f"clothes). Cinematic frame, no text." if with_ref else f"{prompt.strip()} Cinematic frame, no text.")
+
+
+def attach_character(ai, bible: str, out_dir: Path, portrait: bool, style: str, log, engine: str = "auto") -> bool:
+    """Hace que las imágenes clave del proveedor mantengan al personaje de una imagen de referencia.
+    engine: «local» (Qwen-Image-Edit en ComfyUI, gratis), «nanobanana» (clave de imagen de Gemini) o «auto»
+    (local si está instalado y el proveedor es ComfyUI; si no, Nano Banana). True si quedó activo; si falla, el
+    proveedor sigue con sus propias imágenes clave."""
     aspect = "9:16" if portrait else "16:9"
     ref = out_dir / "character.png"
+    local = hasattr(ai, "edit_image") and engine in ("auto", "local")
+    if engine == "local" and not local:
+        log("Personaje consistente local: requiere ComfyUI como proveedor de video.", "warn")
+        return False
+    if not local and not S.get_secret(KEY):
+        return False
+    name = "Qwen-Image-Edit (local)" if local else "Nano Banana"
     try:
         if not (ref.is_file() and ref.stat().st_size > 0):
-            log("Personaje: creando la imagen de referencia con Nano Banana…", "info")
-            character_sheet(bible, ref, aspect, style)
+            log(f"Personaje: creando la imagen de referencia con {name}…", "info")
+            if local:
+                ai.edit_image(sheet_prompt(bible, style), None, ref, lambda m: log(m, "info"))
+            else:
+                character_sheet(bible, ref, aspect, style)
     except Exception as e:
         log(f"Personaje consistente no disponible ({str(e)[:200]}); se sigue sin referencia.", "warn")
         return False
 
     def keyframe(prompt: str, dest: Path, log_fn) -> Path:
+        if local:
+            return ai.edit_image(scene_prompt(prompt, True), ref, dest, log_fn)
         return scene_keyframe(prompt, ref, dest, aspect)
 
     ai.keyframe = keyframe
+    ai.character_local = local  # el pipeline genera primero todas las imágenes clave (una sola carga de modelos)
+    log(f"Personaje consistente activo con {name}: cada escena parte de la misma referencia.", "info")
     return True

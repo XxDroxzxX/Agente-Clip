@@ -31,6 +31,19 @@ DEFAULT_WORKFLOW = "wan22_ti2v_5b.json"
 # 832x480 cabe en 6-8 GB de VRAM con Wan 2.2 5B cuantizado; múltiplos de 32 (lo exige el VAE de Wan 2.2)
 RESOLUTIONS = {"480p": (832, 480), "544p": (960, 544), "704p": (1280, 704)}
 VIDEO_EXT = (".mp4", ".webm", ".mov", ".mkv", ".gif", ".webp")
+EDIT_WORKFLOW = "qwen_image_edit_2511.json"  # personaje consistente local (Qwen-Image-Edit, Apache 2.0)
+EDIT_SIZE = {"portrait": (576, 1024), "landscape": (1024, 576)}  # múltiplos de 16; ~0,6 MP para 6 GB de VRAM
+EDIT_MODELS = {"unet": "qwen-image-edit-2511-Q2_K.gguf", "text_encoders": "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+               "vae": "qwen_image_vae.safetensors",
+               "loras": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"}
+
+
+def edit_ready(comfy_path: str) -> bool:
+    """¿Están los modelos de Qwen-Image-Edit en la carpeta de ComfyUI?"""
+    if not comfy_path:
+        return False
+    models = Path(comfy_path) / "ComfyUI" / "models"
+    return all((models / folder / name).is_file() for folder, name in EDIT_MODELS.items())
 _PH = re.compile(r"\{\{(\w+)\}\}")
 
 
@@ -230,6 +243,14 @@ class ComfyVideo:
             time.sleep(3)
 
     @staticmethod
+    def find_image(outputs: dict) -> dict:
+        for node in outputs.values():
+            for it in node.get("images", []) if isinstance(node, dict) else []:
+                if str(it.get("filename", "")).lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
+                    return it
+        raise RuntimeError("ComfyUI terminó pero no devolvió ninguna imagen.")
+
+    @staticmethod
     def find_video(outputs: dict) -> dict:
         for node in outputs.values():
             for items in node.values():
@@ -257,8 +278,23 @@ class ComfyVideo:
         clip.unlink(missing_ok=True)
         return dest
 
-    def _fetch(self, wf: dict, dest: Path, log: Callable[[str], None]) -> None:
-        out = self.find_video(self._wait(self._queue(wf), log))
+    def edit_image(self, prompt: str, ref: Path | None, dest: Path, log: Callable[[str], None],
+                   steps: int = 4) -> Path:
+        """Imagen con Qwen-Image-Edit (local, Apache 2.0): con `ref` mantiene al personaje de la referencia; sin
+        ella crea la imagen desde el texto. Sale del tamaño del video IA (vertical u horizontal)."""
+        wf_file = workflow_path(EDIT_WORKFLOW)
+        tpl = json.loads(wf_file.read_text(encoding="utf-8"))
+        image = self._upload(ref) if ref is not None else None
+        wf = tpl if image else drop_nodes_with(tpl, "ref_image")
+        w, h = EDIT_SIZE["portrait" if self.height > self.width else "landscape"]
+        wf = fill(wf, {"prompt": prompt, "seed": random.randint(1, 2**48), "width": w, "height": h, "steps": steps,
+                       "ref_image": image or ""})
+        self._fetch(wf, dest, log, image=True)
+        return dest
+
+    def _fetch(self, wf: dict, dest: Path, log: Callable[[str], None], image: bool = False) -> None:
+        outputs = self._wait(self._queue(wf), log)
+        out = self.find_image(outputs) if image else self.find_video(outputs)
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(dest.suffix + ".part")
         with requests.get(f"{self.url}/view", params={"filename": out["filename"], "subfolder": out.get("subfolder", ""),

@@ -681,6 +681,20 @@ def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
     return prev_clip
 
 
+def _chain_starts(shots: list[Shot], ai_idx: dict, by_scene: bool) -> list[Shot]:
+    """Tomas IA que arrancan una cadena (las que necesitan imagen clave): la primera de cada racha de tomas IA y,
+    si se encadena por escena, la primera de cada escena."""
+    starts, prev_ai, prev_scene = [], False, None
+    for shot in shots:
+        is_ai = id(shot) in ai_idx
+        if is_ai and (not prev_ai or (by_scene and shot.scene != prev_scene)):
+            starts.append(shot)
+        prev_ai = is_ai
+        if is_ai:
+            prev_scene = shot.scene
+    return starts
+
+
 def release_ai(cfg: dict) -> None:
     """Libera la GPU al terminar el paso visual (ComfyUI queda abierto entre videos del mismo run)."""
     if cfg["video"]["visual_provider"] == "comfyui":
@@ -733,12 +747,25 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
     by_scene = v.get("comfy_chain", "scene") == "scene" and v["visual_provider"] in ("comfyui", "veo")
     keyframes = bool(v.get("comfy_keyframes", True)) and v["visual_provider"] == "comfyui"
     bible = next((s.bible for s in shots if s.bible), "")
-    if v.get("character_ref", True) and bible and S.get_secret("gemini_media_api_key"):
+    if v.get("character_ref", True) and bible:
+        from .comfyui import edit_ready
         from .gemini_media import attach_character
-        if attach_character(ai, bible, out_dir, portrait, v.get("ai_style", ""), log):
+        engine = v.get("character_engine", "auto")
+        if engine == "auto":
+            engine = "local" if hasattr(ai, "edit_image") and edit_ready(v.get("comfy_path", "")) else "nanobanana"
+        if attach_character(ai, bible, out_dir, portrait, v.get("ai_style", ""), log, engine):
             keyframes = True  # cada escena arranca de una imagen con el mismo personaje
-            log("Personaje consistente activo: las imágenes clave salen de Nano Banana con la referencia.", "info")
     director = _director(cfg, log)
+    if keyframes and getattr(ai, "character_local", False):
+        # personaje local: primero todas las imágenes clave (Qwen se carga una vez) y luego todas las animaciones
+        # (Wan se carga una vez); alternar uno y otro en 6 GB de VRAM recargaría ~10 GB de modelos en cada toma
+        starts = _chain_starts(shots, ai_idx, by_scene)
+        log(f"Personaje: preparando {len(starts)} imagen(es) clave antes de animar.", "info")
+        for shot in starts:
+            try:
+                _keyframe(ai, shot, ai_idx[id(shot)], 0, ai_prompt(shot), out_dir, log, director)
+            except Exception as e:
+                log(f"Imagen clave de la toma {ai_idx[id(shot)] + 1}: {str(e)[:160]} (se reintentará al animar).", "warn")
     prev_clip: Path | None = None
     prev_scene: int | None = None
     done = 0
