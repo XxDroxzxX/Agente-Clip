@@ -113,7 +113,7 @@ def step_voice(run: Run, cfg: dict, items) -> dict:
         def one(i_sc):
             nonlocal done
             i, sc = i_sc
-            r = tts.synthesize_scene(sc.narration, vc, d, i, engine=eng)
+            r = tts.synthesize_scene(sc.narration, vc, d, i, engine=eng, lang=cfg["content"]["language"])
             with lock:  # varias escenas terminan a la vez
                 done += 1
                 run.step_progress("voice", min(1.0, done / total), f"{key}: {done}/{total} escenas")

@@ -218,14 +218,16 @@ def _wav_duration(path: Path) -> float:
 
 
 def synthesize_scene(text: str, voice_cfg: dict, out_dir: Path, idx: int, gap: float = SCENE_GAP,
-                     engine: str | None = None) -> SceneAudio:
+                     engine: str | None = None, lang: str = "es") -> SceneAudio:
     """voice_cfg: sección «voice» de la configuración. engine fuerza «edge» o «gemini»."""
     engine = engine or voice_cfg.get("engine", "edge")
     wav = out_dir / f"scene_{idx:02d}.wav"
     try:
         if engine == "gemini":
             raw = out_dir / f"scene_{idx:02d}.gem.wav"
-            _gemini(text, voice_cfg.get("gemini_voice", "Puck"), voice_cfg.get("gemini_style", ""), raw)
+            from .catalog import reading_instruction
+            _gemini(text, voice_cfg.get("gemini_voice", "Puck"),
+                    reading_instruction(voice_cfg.get("gemini_style", ""), lang), raw)
             # sin silencios al inicio/final, para que los tiempos estimados arranquen en la voz
             clean = out_dir / f"scene_{idx:02d}.clean.wav"
             ffmpeg.run(["-i", raw, "-af", "silenceremove=start_periods=1:start_threshold=-45dB,"

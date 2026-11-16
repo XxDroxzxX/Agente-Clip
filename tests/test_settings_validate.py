@@ -62,5 +62,30 @@ class RedactTest(unittest.TestCase):
         self.assertIn("key=***", text)
 
 
+
+class ReadingInstructionTest(unittest.TestCase):
+    """Gemini TTS traducía frases enteras con un estilo en español y un guion en inglés."""
+
+    def test_preset_is_translated_and_locked(self):
+        style = catalog.READING_STYLES[1][0]
+        text = catalog.reading_instruction(style, "en")
+        self.assertTrue(text.startswith("Speak only in English"))
+        self.assertIn("mystery narrator", text)
+        self.assertNotIn("narrador", text)
+
+    def test_spanish_keeps_style(self):
+        self.assertIn("narrador de misterio", catalog.reading_instruction(catalog.READING_STYLES[1][0], "es"))
+
+
+class FacebookJsonTest(unittest.TestCase):
+    def test_non_json_answer_is_explained(self):
+        from unittest import mock
+        from agente.publish import facebook
+        r = mock.Mock(status_code=502)
+        r.json.side_effect = ValueError("Expecting value")
+        with self.assertRaisesRegex(RuntimeError, "error 502"):
+            facebook._json(r, "subida")
+
+
 if __name__ == "__main__":
     unittest.main()

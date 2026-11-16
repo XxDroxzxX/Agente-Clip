@@ -51,6 +51,40 @@ READING_STYLES = [
     ("tono neutro y profesional, como un presentador de noticias", "Noticias (neutro y profesional)"),
 ]
 
+# Gemini TTS sigue el idioma de la instrucción de estilo: con un estilo en español y un guion en inglés traduce
+# frases enteras. Por eso el estilo se envía en el idioma del guion, con una orden de leer sin traducir.
+READING_LOCK = {
+    "es": ("Habla solo en español y lee el texto exactamente como está escrito, palabra por palabra; nunca traduzcas.",
+           "Estilo"),
+    "en": ("Speak only in English and read the text exactly as written, word for word; never translate.", "Delivery"),
+    "pt": ("Fale apenas em português e leia o texto exatamente como está escrito, palavra por palavra; nunca traduza.",
+           "Estilo"),
+}
+READING_STYLES_I18N = {  # estilo predefinido (español) → su versión en el idioma del guion
+    READING_STYLES[0][0]: {"en": "warm and energetic, like a content creator, fast pace",
+                           "pt": "próximo e com energia, como um criador de conteúdo, ritmo ágil"},
+    READING_STYLES[1][0]: {"en": "mystery narrator, deep and slow voice that builds suspense",
+                           "pt": "narrador de mistério, voz grave e pausada, que cria suspense"},
+    READING_STYLES[2][0]: {"en": "calm and warm, like a nature documentary",
+                           "pt": "tranquilo e caloroso, como um documentário de natureza"},
+    READING_STYLES[3][0]: {"en": "clear and didactic, like a friendly teacher",
+                           "pt": "claro e didático, como um professor gentil"},
+    READING_STYLES[4][0]: {"en": "enthusiastic and fast, like an exciting commercial",
+                           "pt": "entusiasmado e rápido, como um anúncio empolgante"},
+    READING_STYLES[5][0]: {"en": "neutral and professional tone, like a news anchor",
+                           "pt": "tom neutro e profissional, como um apresentador de notícias"},
+}
+
+
+def reading_instruction(style: str, lang: str) -> str:
+    """Instrucción de estilo para Gemini TTS en el idioma del guion, con la orden de no traducir."""
+    lock, label = READING_LOCK.get(lang, READING_LOCK["en"])
+    style = (style or "").strip()
+    if lang != "es":
+        style = READING_STYLES_I18N.get(style, {}).get(lang, style)
+    return f"{lock} {label}: {style}." if style else lock
+
+
 # Voces de Gemini TTS: carácter según la documentación de Google
 GEMINI_VOICE_INFO = {
     "Puck": "animada", "Kore": "firme", "Charon": "informativa", "Fenrir": "enérgica", "Aoede": "ligera",

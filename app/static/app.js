@@ -547,7 +547,14 @@ $("#btnResume").onclick = async () => {
 $("#btnBackToActive").onclick = () => app.active && attach(app.active.run_id);
 
 async function publishRun(runId) {
-  if (!confirm("¿Publicar los videos de este run en las plataformas activas?")) return;
+  // la publicación manual no respeta la revisión IA: se avisa qué videos reprobó y por qué
+  let warn = "";
+  try {
+    const { run } = await api(`/api/runs/${encodeURIComponent(runId)}`);
+    const bad = Object.entries(run.items || {}).filter(([, it]) => it.review && it.review.ok === false);
+    if (bad.length) warn = "\n\n⚠ La revisión con IA reprobó:\n" + bad.map(([k, it]) => `• ${k === "long" ? "Video largo" : k.replace("short_", "Short ")}: ${it.review.score}/10 — ${it.review.summary}`).join("\n") + "\n\nSe publicarán igual si continúas.";
+  } catch (e) { /* sin datos de revisión: se pregunta lo normal */ }
+  if (!confirm("¿Publicar los videos de este run en las plataformas activas?" + warn)) return;
   try {
     await api(`/api/runs/${encodeURIComponent(runId)}/publish`, { method: "POST" });
     toast("Publicación iniciada", "ok");
@@ -794,7 +801,7 @@ function renderSettings() {
       ${field("voice.engine", "Motor de voz", "select", { options: [["edge", "Microsoft Edge (gratis, sincronía exacta)"], ["gemini", "Gemini TTS (gratis con tu clave, más expresiva)"]], help: d.voice.engine === "gemini" ? "Si Gemini falla o se agota la cuota, ese video se narra con la voz de Edge." : "" })}
       ${d.voice.engine === "gemini" ? `
       ${field("voice.gemini_voice", "Voz de Gemini", "select", { options: cfg.geminiVoices.map((v) => [v, cfg.catalog.gemini_voice_info[v] ? `${v} · ${cfg.catalog.gemini_voice_info[v]}` : v]), help: "Todas hablan el idioma del guion." })}
-      ${choiceField("voice.gemini_style", "Estilo de lectura", cfg.catalog.reading_styles, { placeholder: "Cómo debe sonar, en tus palabras", help: "Elige uno o escribe el tuyo con «Personalizado…»." })}` : ""}
+      ${choiceField("voice.gemini_style", "Estilo de lectura", cfg.catalog.reading_styles, { placeholder: "Cómo debe sonar, en tus palabras", help: d.content.language === "es" ? "Elige uno o escribe el tuyo con «Personalizado…»." : "Los predefinidos se traducen solos al idioma del video. Si escribes uno propio, escríbelo en ese idioma: un estilo en español hace que la voz meta palabras en español." })}` : ""}
       <div class="field"><label for="f-voice-name">Voz de Edge${d.voice.engine === "gemini" ? " (respaldo)" : ""}</label><select id="f-voice-name" data-path="voice.name"><option>${esc(d.voice.name)}</option></select><span class="help">Agrupadas por país; solo voces de ${esc((cfg.catalog.languages.find(([c]) => c === d.content.language) || ["", ""])[1].toLowerCase())}.</span></div>
       ${field("voice.rate", "Velocidad (Edge)", "select", { options: [["-10%", "Lenta"], ["+0%", "Normal"], ["+6%", "Ágil"], ["+12%", "Rápida"], ["+20%", "Muy rápida"]] })}
     </div>

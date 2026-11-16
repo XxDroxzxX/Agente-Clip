@@ -45,6 +45,10 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   Si la página está en un portafolio comercial (Business Suite), `/me/accounts` viene vacío: se usan los ids de
   `granular_scopes` del token (`facebook._granted_pages`). Síntoma del error: Instagram decía «nonexisting field
   (instagram_business_account)» porque el token apuntaba al perfil personal.
+- Facebook video largo: subida por partes (`upload_phase` start/transfer/finish); en una sola petición, 177 MB
+  devolvían una página de error («Expecting value»). Instagram (2026-11-15): con esta cuenta los Reels de más de
+  ~34 s fallan en Meta (`ProcessingFailedError` por rupload y 2207076 por `video_url`), los cortos suben bien; no es
+  el archivo ni el transporte. Se explica en el error; no bajar fps para esquivarlo.
 - YouTube: si Google muestra «Acceso bloqueado», publicar la app OAuth (Google Auth Platform → Público → Publicar app).
 
 ## Arquitectura (agente/)
@@ -57,6 +61,8 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   por video: `music` (mood + prompt), `thumbnail_text`; por paquete: `broll_queries`.
 - `gemini.py`: Gemini API gratuita, **Interactions API** (`POST /v1beta/interactions`, header `Api-Revision: 2026-05-20`,
   `x-goog-api-key`). `interact()` reintenta 503 y cae al siguiente modelo gratis. Acepta texto, imagen y audio.
+- Gemini TTS sigue el idioma de la instrucción de estilo: con estilo en español y guion en inglés traducía frases
+  enteras. `catalog.reading_instruction` manda el estilo en el idioma del guion con la orden de no traducir.
 - `tts.py`: Edge TTS (tiempos exactos por palabra) o Gemini TTS (`gemini-3.8-flash-tts`, gratis; tiempos estimados
   alineando frases con pausas reales: `align_words`). En paralelo; si Gemini falla, el video entero usa Edge.
 - `visuals.py` + `vision.py`: Pixabay/Pexels; una IA con visión ordena candidatos y **descarta** los sin relación o que

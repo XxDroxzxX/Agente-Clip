@@ -20,6 +20,11 @@ PERMS_HINT = ("Revisa que tu Instagram sea profesional, esté vinculado a la pá
               "tenga los permisos instagram_basic e instagram_content_publish.")
 
 
+META_HINT = ("Es un fallo del lado de Meta: en las pruebas, con esta cuenta los Reels de más de ~34 s fallan por API "
+             "(los cortos suben bien), tanto subidos directo como por enlace. Vuelve a intentar más tarde con «Publicar» "
+             "o súbelo desde la app de Instagram; el video en sí está bien.")
+
+
 def _check(data: dict, what: str) -> dict:
     if isinstance(data, dict) and "error" in data:
         msg = data["error"].get("message", "")
@@ -53,7 +58,8 @@ def upload_reel(video: Path, caption: str, version: str, on_progress: Callable[[
         up = requests.post(uri, data=f, timeout=1800, headers={
             "Authorization": f"OAuth {token}", "offset": "0", "file_size": str(video.stat().st_size)}).json()
     if not up.get("success"):
-        raise RuntimeError(f"Instagram (subida): {str(up)[:200]}")
+        kind = (up.get("debug_info") or {}).get("type", "")
+        raise RuntimeError(f"Instagram rechazó el video al procesarlo ({kind or str(up)[:120]}). " + META_HINT)
     on_progress(0.6)
     # Instagram procesa el video antes de poder publicarlo
     t0 = time.time()
@@ -64,7 +70,7 @@ def upload_reel(video: Path, caption: str, version: str, on_progress: Callable[[
         if code in ("FINISHED", "PUBLISHED"):
             break
         if code in ("ERROR", "EXPIRED"):
-            raise RuntimeError(f"Instagram no pudo procesar el video: {st.get('status', code)}")
+            raise RuntimeError(f"Instagram no pudo procesar el video ({st.get('status', code)}). " + META_HINT)
         if time.time() - t0 > 600:
             raise RuntimeError("Instagram tardó más de 10 minutos en procesar el video.")
         on_progress(min(0.9, 0.6 + (time.time() - t0) / 600 * 0.3))

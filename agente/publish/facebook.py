@@ -4,6 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
+import time
+
 import requests
 
 from .. import settings as S
@@ -81,19 +83,53 @@ def normalize_token(token: str, version: str) -> tuple[str, str]:
     return token, note.strip()
 
 
-def upload_video(video: Path, title: str, description: str, version: str, on_progress: Callable[[float], None]) -> dict:
+def _json(r: requests.Response, what: str) -> dict:
+    """Respuesta de la Graph API. Si Facebook devuelve una página de error (no JSON), lo explica en vez de fallar
+    con «Expecting value»."""
+    try:
+        data = r.json()
+    except ValueError:
+        raise RuntimeError(f"Facebook ({what}) respondió con un error {r.status_code} sin detalles. Suele ser un corte "
+                           "temporal: vuelve a intentar con «Publicar».")
+    if isinstance(data, dict) and "error" in data:
+        raise RuntimeError(f"Facebook ({what}): {data['error'].get('message')}")
+    return data
+
+
+def upload_video(video: Path, title: str, description: str, version: str, on_progress: Callable[[float], None],
+                 published: bool = True) -> dict:
+    """Video de página por partes (subida reanudable): un archivo grande en una sola petición termina cortado."""
+    token = _token()
     page = page_info(version)
-    on_progress(0.1)
+    base = f"https://graph-video.facebook.com/{version}/{page['id']}/videos"
+    size = video.stat().st_size
+    st = _json(requests.post(base, timeout=60, data={"upload_phase": "start", "file_size": size,
+                                                     "access_token": token}), "inicio")
+    session, vid = st["upload_session_id"], st["video_id"]
+    start, end = int(st["start_offset"]), int(st["end_offset"])
     with open(video, "rb") as f:
-        r = requests.post(f"https://graph-video.facebook.com/{version}/{page['id']}/videos",
-                          files={"source": (video.name, f, "video/mp4")},
-                          data={"title": title[:250], "description": description, "access_token": _token()},
-                          timeout=1800)
-    data = r.json()
-    if "error" in data:
-        raise RuntimeError(f"Facebook video: {data['error'].get('message')}")
+        while start < end:
+            f.seek(start)
+            chunk = f.read(end - start)
+            for attempt in range(3):  # cada parte se reintenta: una sola caída no arruina toda la subida
+                try:
+                    st = _json(requests.post(base, timeout=300, data={
+                        "upload_phase": "transfer", "upload_session_id": session, "start_offset": start,
+                        "access_token": token}, files={"video_file_chunk": ("chunk", chunk, "application/octet-stream")}),
+                        "subida")
+                    break
+                except (RuntimeError, requests.RequestException):
+                    if attempt == 2:
+                        raise
+                    time.sleep(5 * (attempt + 1))
+            start, end = int(st["start_offset"]), int(st["end_offset"])
+            on_progress(0.05 + 0.85 * start / size)
+    fin = _json(requests.post(base, timeout=120, data={
+        "upload_phase": "finish", "upload_session_id": session, "title": title[:250], "description": description,
+        "published": "true" if published else "false", "access_token": token}), "publicación")
+    if not fin.get("success"):
+        raise RuntimeError(f"Facebook no confirmó la publicación del video: {fin}")
     on_progress(1.0)
-    vid = data["id"]
     return {"platform_id": vid, "url": f"https://www.facebook.com/{page['id']}/videos/{vid}", "privacy": "public", "note": ""}
 
 
