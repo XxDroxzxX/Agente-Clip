@@ -652,12 +652,20 @@ def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
                 # se desvió de la escena: una regeneración sin cadena, con el prompt corregido; queda la mejor
                 log(f"Director IA: toma {i+1}.{k+1} con nota {verdict.score}/10 ({verdict.issue}); se regenera.", "warn")
                 alt = dest.with_name(dest.stem + "_alt.mp4")
-                start2, prompt2 = fresh_start(k, _better(verdict, shot, prompt))
-                if start2 is not None and start2 == start:  # la imagen clave ya estaba aprobada: se re-anima
-                    log("La imagen clave se mantiene; se anima de nuevo con el prompt corregido.", "info")
-                _make_segment(ai, prompt2, start2, alt, seconds, log, trim=False)
-                v2 = director.clip(shot, alt, seconds, prompt2)
-                if v2 is None or v2.score >= verdict.score:
+                try:
+                    start2, prompt2 = fresh_start(k, _better(verdict, shot, prompt))
+                    if start2 is not None and start2 == start:  # la imagen clave ya estaba aprobada: se re-anima
+                        log("La imagen clave se mantiene; se anima de nuevo con el prompt corregido.", "info")
+                    _make_segment(ai, prompt2, start2, alt, seconds, log, trim=False)
+                    v2 = director.clip(shot, alt, seconds, prompt2)
+                except Exception as e:  # la primera versión ya existe: mejor ella que un clip de stock sin revisar
+                    alt.unlink(missing_ok=True)
+                    log(f"Director IA: la regeneración falló ({str(e)[:120]}); se conserva la primera versión.", "warn")
+                    v2 = verdict
+                    prompt2 = None
+                if prompt2 is None:
+                    pass
+                elif v2 is None or v2.score >= verdict.score:
                     alt.replace(dest)
                     prompt = prompt2
                     if k == 0:
@@ -679,6 +687,15 @@ def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
         shot.source = joined
     shot.kind, shot.credit = "video", "Generado con IA"
     return prev_clip
+
+
+def _ai_fallback(out_dir: Path, i: int) -> Path | None:
+    """Si una toma IA falló a medias: su primer segmento de video o, si no hay, su imagen clave."""
+    for name in (f"ai_{i:03d}_0.mp4", f"key_{i:03d}_0.png"):
+        f = out_dir / name
+        if f.is_file() and f.stat().st_size > 0:
+            return f
+    return None
 
 
 def _chain_starts(shots: list[Shot], ai_idx: dict, by_scene: bool) -> list[Shot]:
@@ -783,8 +800,15 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
             except Exception as e:
                 log(f"Toma {i+1}: {e}. Se usa respaldo.", "warn")
                 prev_clip = None  # reinicia la cadena
-                found = _from_stock(stock, "video", shot.query, shot.duration, log) if stock else None
-                if found:
+                still = _ai_fallback(out_dir, i)
+                found = None if still else _from_stock(stock, "video", shot.query, shot.duration, log) if stock else None
+                if still:
+                    # lo ya generado para esta toma (aprobado o la imagen clave del personaje) encaja mejor que un
+                    # clip de stock buscado a ciegas (en un run salió una playa soleada en una historia de terror)
+                    shot.source, shot.credit, shot.kind = still, "Generado con IA", \
+                        "video" if still.suffix == ".mp4" else "image"
+                    log(f"Toma {i+1}: se usa lo ya generado con IA ({still.name}).", "info")
+                elif found:
                     shot.source, shot.credit = found
                     shot.kind = "video"
             done += 1

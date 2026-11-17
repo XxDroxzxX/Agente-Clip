@@ -224,9 +224,19 @@ class ComfyVideo:
 
     def _wait(self, pid: str, log: Callable[[str], None]) -> dict:
         t0 = time.time()
+        silent = 0.0  # desde cuándo ComfyUI no contesta
         while True:
-            r = requests.get(f"{self.url}/history/{pid}", timeout=30)
-            h = r.json().get(pid) if r.ok else None
+            try:
+                r = requests.get(f"{self.url}/history/{pid}", timeout=30)
+                h = r.json().get(pid) if r.ok else None
+            except (requests.RequestException, ValueError):
+                # al cambiar de modelo (Qwen ↔ Wan) con poca RAM, ComfyUI puede tardar en responder: se sigue esperando
+                h = None
+                silent = silent or time.time()
+                if time.time() - silent > 300:
+                    raise RuntimeError("ComfyUI dejó de responder 5 minutos (puede haberse cerrado por falta de memoria).")
+            else:
+                silent = 0.0
             if h:
                 st = h.get("status") or {}
                 if st.get("status_str") == "error":

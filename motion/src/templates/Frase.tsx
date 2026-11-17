@@ -12,8 +12,10 @@ export const Frase: React.FC<OverlayProps> = ({ headline, highlight, accent, wor
   const words = headline.trim().split(/\s+/).filter(Boolean);
   const size = (s.portrait ? 7.4 : 6.2) * u * (words.length > 9 ? 0.82 : 1);
   const at = timeline(wordFrames, words.length, 8, 2.5, durationInFrames - 25);
-  const card = spring({ frame: frame - 1, fps, config: { damping: 15, stiffness: 130 } });
-  const quote = spring({ frame: frame - 6, fps, config: { damping: 8, stiffness: 120 } });
+  // la tarjeta entra justo antes de la primera palabra: si la voz la dice a los 4 s, no queda una tarjeta vacía
+  const t0 = Math.max(0, (at[0] ?? 0) - 10);
+  const card = spring({ frame: frame - 1 - t0, fps, config: { damping: 15, stiffness: 130 } });
+  const quote = spring({ frame: frame - 6 - t0, fps, config: { damping: 8, stiffness: 120 } });
 
   return (
     <AbsoluteFill style={{ opacity: useLayerOpacity() }}>
