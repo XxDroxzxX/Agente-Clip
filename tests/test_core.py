@@ -92,7 +92,7 @@ class SubtitleTest(unittest.TestCase):
 class LearningTest(unittest.TestCase):
     def test_traits_buckets(self):
         t = learning._traits({"duration": 42, "format": "short", "animations": 3, "music_mood": "alegre"})
-        self.assertEqual(t["duration"], "short 35-50 s")
+        self.assertEqual(t["duration_short"], "short 35-50 s")  # la duración se compara solo dentro del formato
         self.assertEqual(t["animations"], "varias (3+)")
         self.assertEqual(t["music_mood"], "alegre")
 

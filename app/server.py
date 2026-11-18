@@ -803,9 +803,21 @@ def get_learning():
     pubs = []
     for h in sorted(hist, key=lambda h: -h["published_at"])[:60]:
         m = latest.get((h["platform"], h["platform_id"]), {})
-        pubs.append({**h, "views": m.get("views"), "likes": m.get("likes"), "comments": m.get("comments"),
-                     "age_hours": m.get("age_hours")})
-    return {"learning": learning.load_learning(), "styles": learning.HOOK_STYLES, "publications": pubs}
+        pubs.append({**h, "format": learning.fmt(h), "views": m.get("views"), "likes": m.get("likes"),
+                     "comments": m.get("comments"), "age_hours": m.get("age_hours")})
+    # vistas por red y formato: deja ver de un vistazo dónde rinde cada tipo de video
+    summary: dict = {}
+    for h in hist:
+        m = latest.get((h["platform"], h["platform_id"]), {})
+        g = summary.setdefault(f"{h['platform']}|{learning.fmt(h)}", {"platform": h["platform"], "format": learning.fmt(h),
+                                                                      "n": 0, "measured": 0, "views": 0})
+        g["n"] += 1
+        if m.get("views") is not None:
+            g["measured"] += 1
+            g["views"] += m["views"]
+    return {"learning": learning.load_learning(), "styles": learning.HOOK_STYLES, "publications": pubs,
+            "summary": sorted(summary.values(), key=lambda g: (g["format"], -g["views"])),
+            "insights": learning.insights()}
 
 
 @app.post("/api/import-legacy")

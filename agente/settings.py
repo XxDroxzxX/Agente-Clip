@@ -120,8 +120,10 @@ DEFAULTS: dict[str, Any] = {
         "facebook": False,
         "instagram": False,             # Reels con el mismo token de página (cuenta IG profesional vinculada)
         "facebook_graph_version": "v24.0",
-        "meta_fallback": True,
-        "ai_label": False,              # marcar «hecho con IA» al publicar en Instagram por navegador (decisión del usuario)          # si la API de Meta falla: Instagram por navegador y Facebook por otra vía
+        "meta_fallback": True,          # si la API de Meta falla: Instagram por navegador y Facebook por otra vía
+        "ai_label": False,              # marcar «hecho con IA» al publicar en Instagram por navegador (decisión del usuario)
+        "long_everywhere": True,        # el video largo también va a TikTok e Instagram (no solo YouTube y Facebook)
+        "link_long": True,              # cada Short enlaza al video largo del run (descripción + «Vídeo relacionado» en YouTube)
     },
     "general": {
         "notify": True,             # aviso de Windows al terminar (o fallar) un run

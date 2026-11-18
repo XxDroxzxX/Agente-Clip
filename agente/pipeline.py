@@ -77,17 +77,22 @@ def step_research(run: Run, cfg: dict) -> dict:
 
 
 def step_script(run: Run, cfg: dict, data: dict) -> scriptgen.ScriptPackage:
-    hook, why = learning.choose_hook_style(cfg["metrics"]["exploration"])
-    run.step_start("script", f"Gancho: {hook}")
-    run.info(f"Estilo de gancho elegido: «{hook}» ({why}).", "script")
+    keys = (["long"] if cfg["video"]["long_enabled"] else []) + \
+           [f"short_{i}" for i in range(1, int(cfg["video"]["shorts_count"]) + 1)]
+    picks = learning.choose_hook_styles(keys or ["long"], cfg["metrics"]["exploration"])
+    hooks = {k: s for k, (s, _) in picks.items()}
+    hook = next(iter(hooks.values()))
+    run.step_start("script", "Ganchos: " + ", ".join(dict.fromkeys(hooks.values())))
+    run.info("Ganchos de hoy (uno por video, para comparar cuál rinde mejor): "
+             + "; ".join(f"{k} «{s}» ({why})" for k, (s, why) in picks.items()) + ".", "script")
     try:
-        pkg = scriptgen.generate(run, cfg, data, hook)
+        pkg = scriptgen.generate(run, cfg, data, hooks)
     except Exception as e:
         run.error(str(e), "script")
         run.step_end("script", "failed", str(e))
         raise StepFailed(str(e))
     run.set(title=pkg.long_video.title if cfg["video"]["long_enabled"] else pkg.shorts[0].title,
-            topic=pkg.topic, hook_style=hook)
+            topic=pkg.topic, hook_style=hook, hook_styles=hooks)
     run.artifact("script", data=pkg.model_dump(), hook_style=hook)
     run.step_end("script", "done", pkg.topic)
     return pkg
@@ -344,35 +349,53 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
             run.warn(f"{k} no se publica automáticamente: la revisión con IA lo reprobó. Revísalo y publícalo a mano si está bien.", "publish")
         items = [k for k in items if k not in blocked]
     targets = []
+    everywhere = p.get("long_everywhere", True)
     for key in items:
         is_short = key != "long"
         if p["youtube"]:
             targets.append((key, "youtube"))
-        if p["tiktok"] and is_short:
+        if p["tiktok"] and (is_short or everywhere):
             targets.append((key, "tiktok"))
         if p["facebook"]:
             targets.append((key, "facebook"))
-        if p.get("instagram") and is_short:
+        if p.get("instagram") and (is_short or everywhere):
             targets.append((key, "instagram"))
+    # el video largo primero en cada red: así los Shorts ya pueden enlazarlo
+    targets.sort(key=lambda t: t[0] != "long")
     if not targets:
         run.step_end("publish", "skipped", "No hay plataformas activas")
         return
     done_keys = {(u["item"], u["platform"]) for u in run.state.get("uploads", []) if u.get("platform_id")}
-    hook = run.state.get("hook_style")
+    hooks = run.state.get("hook_styles") or {}
+    link = p.get("link_long", True)
+    lang = cfg["content"]["language"]
     ok, failed, history = 0, 0, []
     for n, (key, platform) in enumerate(targets):
         if (key, platform) in done_keys:
             run.info(f"{key} ya estaba publicado en {platform}; se omite.", "publish")
             if platform == "youtube":
                 _retry_thumbnail(run, key, p)
+                if link and key != "long":
+                    _retry_related(run, key, p)
             continue
         plan = _plan_from_script(run, key)
+        hook = hooks.get(key) or run.state.get("hook_style")
         video = run.dir / key / "final.mp4"
         credits = run.state["items"].get(key, {}).get("credits", [])
         tags = " ".join(plan.hashtags)
-        desc = f"{plan.description}\n\n{tags}"
+        body = plan.description
+        if key == "long" and platform == "youtube":
+            chap = _chapters(run, plan)
+            if chap:  # capítulos: YouTube los muestra como secciones (retención y búsqueda)
+                body += "\n\n" + chap
+        # en cada red se enlaza el largo de esa misma red (el público no sale de la app) o, si no hay, el de YouTube
+        long_up = (_long_upload(run, platform) or _long_upload(run, "youtube")) if link and key != "long" else None
+        if long_up and long_up.get("url"):
+            body = f"{FULL_STORY.get(lang, FULL_STORY['en'])}: {long_up['url']}\n\n{body}"
+        desc = f"{body}\n\n{tags}"
         if credits:
             desc += "\n\nMaterial visual: " + "; ".join(credits[:6])
+        yt_long = _long_upload(run, "youtube") if link and key != "long" and platform == "youtube" else None
         base = n / len(targets)
 
         def prog(x, base=base):
@@ -384,7 +407,8 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
             if platform == "youtube" and p.get("youtube_method", "browser") == "browser":
                 thumb = run.dir / key / "thumbnail.jpg"
                 res = browser.upload_youtube(video, plan.title, desc, plan.hashtags, p["youtube_privacy"], key != "long",
-                                             prog, thumbnail=thumb if thumb.is_file() else None, visible=visible)
+                                             prog, thumbnail=thumb if thumb.is_file() else None, visible=visible,
+                                             related=yt_long.get("title") if yt_long else None)
             elif platform == "youtube":
                 thumb = run.dir / key / "thumbnail.jpg"
                 res = youtube.upload(video, plan.title, desc, plan.hashtags, p["youtube_privacy"],
@@ -421,6 +445,46 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
         learning.add_history(history)
     # con algún error el paso queda en rojo: el botón «Publicar» reintenta solo lo que falló
     run.step_end("publish", "done" if failed == 0 else "failed", f"{ok} publicados, {failed} con error")
+
+
+FULL_STORY = {"es": "▶ Historia completa", "en": "▶ Full story", "pt": "▶ História completa",
+              "fr": "▶ Histoire complète", "de": "▶ Ganze Geschichte", "it": "▶ Storia completa"}
+
+
+def _long_upload(run: Run, platform: str) -> dict | None:
+    """La publicación del video largo de este run en esa red (con enlace), si ya salió."""
+    rec = next((u for u in run.state.get("uploads", []) if u.get("item") == "long" and u.get("platform") == platform
+                and u.get("platform_id") and not str(u["platform_id"]).startswith(("yt-browser-", "tt-browser-"))), None)
+    if rec and platform == "youtube" and not rec.get("url"):
+        rec = {**rec, "url": f"https://youtu.be/{rec['platform_id']}"}
+    return rec if rec and rec.get("url") else None
+
+
+def _chapters(run: Run, plan) -> str:
+    try:
+        scenes = json.loads((run.dir / "long" / "audio.json").read_text(encoding="utf-8"))["scenes"]
+        return scriptgen.chapters(plan, [s["duration"] for s in scenes])
+    except Exception:
+        return ""
+
+
+def _retry_related(run: Run, key: str, p: dict) -> None:
+    """«Publicar» en un run ya publicado: enlaza el Short al video largo si quedó pendiente (YouTube pide una
+    verificación única para «Vídeo relacionado»)."""
+    from .publish import browser
+    rec = next((u for u in run.state.get("uploads", []) if u.get("item") == key and u.get("platform") == "youtube"
+                and u.get("platform_id") and u.get("related_pending")), None)
+    long_up = _long_upload(run, "youtube")
+    if not rec or not long_up or str(rec["platform_id"]).startswith("yt-browser-"):
+        return
+    try:
+        browser.set_youtube_related(rec["platform_id"], long_up["title"], visible=bool(p.get("browser_visible")))
+    except Exception as e:
+        run.warn(f"youtube: {key} sigue sin enlace al video largo — {str(e)[:300]}", "publish")
+        return
+    rec["related_pending"] = False
+    run.set()
+    run.info(f"youtube: {key} enlazado al video largo.", "publish")
 
 
 def _retry_thumbnail(run: Run, key: str, p: dict) -> None:
@@ -483,12 +547,12 @@ def _facebook(run: Run, p: dict, video, plan, desc: str, tags: str, prog, key: s
             time.sleep(30)
             return facebook.upload_video(video, plan.title, desc, version, prog)
     try:
-        return facebook.upload_reel(video, f"{plan.title}\n\n{tags}", version, prog)
+        return facebook.upload_reel(video, f"{plan.title}\n\n{desc}", version, prog)
     except Exception as e:
         if not p.get("meta_fallback", True) or "(publicación)" in str(e):
             raise  # si falló al confirmar, podría estar publicado: no se duplica
         run.warn(f"facebook: el Reel de {key} falló ({str(e)[:140]}); se publica como video de la página.", "publish")
-        res = facebook.upload_video(video, plan.title, f"{plan.title}\n\n{tags}", version, prog)
+        res = facebook.upload_video(video, plan.title, f"{plan.title}\n\n{desc}", version, prog)
         res["note"] = (res.get("note", "") + " Publicado como video de la página porque falló la vía de Reels.").strip()
         return res
 

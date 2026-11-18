@@ -59,6 +59,18 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   archivo» (`ytcp-thumbnail-uploader #select-button`) y usar el selector de archivos (`browser._yt_thumbnail`). Si el
   canal no verificó el teléfono, ese botón abre un aviso «debes verificar tu número de teléfono» (era la causa real):
   se avisa y la subida queda con `thumb_pending`; «Publicar» en el run la aplica después (`set_youtube_thumbnail`).
+- Videos largos (2026-11-18): en YouTube tenían 0 vistas sin fallo técnico (públicos, procesados): 1-2 impresiones,
+  porque un canal nuevo no recibe recomendaciones de largos; los Shorts sí (feed de Shorts). Por eso: el largo se publica
+  primero y en todas las redes (`publish.long_everywhere`; TikTok e Instagram lo aceptan horizontal, verificado en
+  ensayo) y cada Short lo enlaza (`publish.link_long`): «▶ Full story: URL» en la descripción (YouTube y Facebook; en
+  TikTok/Instagram los enlaces no son clicables y no se ponen) y «Vídeo relacionado» en YouTube (`browser._yt_related`,
+  ytcp-shorts-content-links-picker). Ese campo exige la «verificación única» de funciones avanzadas: sin ella se avisa
+  y queda `related_pending`; «Publicar» en el run lo reintenta (`set_youtube_related`). El selector de videos aún no se
+  ha podido ver (falta la verificación): validar la primera vez. El largo lleva capítulos (`Scene.chapter`,
+  `scriptgen.chapters`: 0:00, ≥3, ≥10 s cada uno).
+- Aprendizaje (2026-11-18): un gancho distinto por video del run (`learning.choose_hook_styles`, `run.state.hook_styles`)
+  y normalización por red Y formato (`learning.fmt`): antes un gancho por día confundía gancho con tema/día y los largos
+  de YouTube enseñaban «los largos rinden peor». La duración es `duration_short` / `duration_long`.
 - YouTube: si Google muestra «Acceso bloqueado», publicar la app OAuth (Google Auth Platform → Público → Publicar app).
 
 ## Arquitectura (agente/)

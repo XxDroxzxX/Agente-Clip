@@ -289,6 +289,87 @@ def _yt_thumbnail(page, thumbnail: Path) -> str:
     return "No se pudo confirmar que la miniatura quedó aplicada; revísala en YouTube Studio."
 
 
+YT_RELATED_VERIFY_NOTE = ("El Short no se enlazó al video largo: YouTube pide una «verificación única» para usar "
+                          "«Vídeo relacionado» (YouTube Studio → Configuración → Canal → Disponibilidad de funciones → "
+                          "Funciones avanzadas). Después pulsa «Publicar» en el run y se enlazará.")
+_YT_DIALOG = "tp-yt-paper-dialog:visible:not([data-agente-old]), [role=dialog]:visible:not([data-agente-old])"
+
+
+def _yt_related(page, long_title: str) -> str:
+    """Enlaza el Short al video largo con «Vídeo relacionado» (un botón dentro del Short que lleva al video largo).
+    Devuelve una nota si no se pudo; nunca deja un enlace a otro video: solo marca el que tiene el título exacto."""
+    trig = page.locator("ytcp-shorts-content-links-picker ytcp-dropdown-trigger").first
+    try:
+        trig.wait_for(state="visible", timeout=15000)
+        trig.scroll_into_view_if_needed(timeout=5000)
+        # el formulario de subida también es un diálogo: se marcan los que ya estaban para mirar solo el nuevo
+        page.evaluate("""() => document.querySelectorAll('tp-yt-paper-dialog, [role=dialog]').forEach(d => {
+            if (d.offsetParent !== null) d.setAttribute('data-agente-old', '1'); })""")
+        trig.click()
+    except Exception:
+        return "El Short no se enlazó al video largo (no apareció «Vídeo relacionado» en YouTube Studio)."
+    want = long_title.strip()[:40]
+    dialog = None
+    for _ in range(16):
+        page.wait_for_timeout(500)
+        for d in page.locator(_YT_DIALOG).all():
+            try:
+                text = d.inner_text(timeout=1000)
+            except Exception:
+                continue
+            if re.search(r"(?i)verificaci[oó]n|verification", text):
+                _click(page, "ytcp-dialog:visible #cancel-button, tp-yt-paper-dialog:visible #cancel-button, "
+                             "[role=dialog]:visible button:has-text('Cancelar'), [role=dialog]:visible button:has-text('Cancel')",
+                       3000) or page.keyboard.press("Escape")
+                return YT_RELATED_VERIFY_NOTE
+            if text.strip():
+                dialog = d
+        if dialog is not None:
+            break
+    if dialog is None:
+        page.keyboard.press("Escape")
+        return "El Short no se enlazó al video largo (no se abrió la lista de videos)."
+    try:
+        search = dialog.locator("input:visible").first
+        if search.count():
+            search.fill(want)
+            page.wait_for_timeout(2500)
+        dialog.get_by_text(want, exact=False).first.click(timeout=10000)
+        page.wait_for_timeout(1500)
+        # algunos selectores piden confirmar la elección
+        _click(page, "[role=dialog]:visible #done-button, [role=dialog]:visible #save-button, "
+                     "[role=dialog]:visible button:has-text('Listo'), [role=dialog]:visible button:has-text('Guardar'), "
+                     "[role=dialog]:visible button:has-text('Done')", 2500)
+        page.wait_for_timeout(1500)
+    except Exception:
+        page.keyboard.press("Escape")
+        return "El Short no se enlazó al video largo (el video no apareció en la lista; ¿aún se procesa?)."
+    try:
+        now = trig.inner_text(timeout=3000)
+    except Exception:
+        now = ""
+    if want[:20].lower() not in now.lower():
+        return "No se pudo confirmar el enlace del Short al video largo; revísalo en YouTube Studio."
+    return ""
+
+
+def set_youtube_related(video_id: str, long_title: str, visible: bool = False) -> None:
+    """Enlaza un Short ya publicado al video largo (página de edición → «Vídeo relacionado» → Guardar)."""
+    with _browser("youtube", visible=visible) as ctx:
+        if not _logged_in(ctx, "youtube"):
+            raise BrowserError("YouTube no tiene sesión iniciada. Ve a Configuración → Conexiones.")
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page.set_default_timeout(60000)
+        page.goto(f"https://studio.youtube.com/video/{video_id}/edit", wait_until="domcontentloaded")
+        page.wait_for_timeout(5000)
+        note = _yt_related(page, long_title)
+        if note:
+            raise BrowserError(note)
+        if not _click(page, "ytcp-button#save, #save", 15000):
+            _fail(page, "youtube", "No se encontró el botón «Guardar» en YouTube Studio.")
+        page.wait_for_timeout(5000)
+
+
 def set_youtube_thumbnail(video_id: str, thumbnail: Path, visible: bool = False) -> None:
     """Aplica la miniatura a un video ya publicado (página de edición de Studio → Guardar)."""
     with _browser("youtube", visible=visible) as ctx:
@@ -307,13 +388,15 @@ def set_youtube_thumbnail(video_id: str, thumbnail: Path, visible: bool = False)
 
 
 def upload_youtube(video: Path, title: str, description: str, tags: list[str], privacy: str, is_short: bool,
-                   on_progress: Callable[[float], None], thumbnail: Path | None = None, visible: bool = False) -> dict:
+                   on_progress: Callable[[float], None], thumbnail: Path | None = None, visible: bool = False,
+                   related: str | None = None) -> dict:
+    """related: título del video largo al que se enlaza el Short («Vídeo relacionado»)."""
     if privacy not in YT_VISIBILITY:
         privacy = "private"
     if is_short and "#shorts" not in title.lower():
         title = f"{title[:90]} #Shorts"
     notes = []
-    thumb_pending = False
+    thumb_pending = related_pending = False
     with _browser("youtube", visible=visible) as ctx:
         if not _logged_in(ctx, "youtube"):
             _save_status("youtube", connected=False)
@@ -341,6 +424,14 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str], p
             if note:
                 notes.append(note)
                 thumb_pending = True
+        if related and is_short:
+            try:
+                note = _yt_related(page, related)
+            except Exception as e:  # un extra: nunca tumba la publicación
+                note = f"El Short no se enlazó al video largo ({str(e)[:120]})."
+            if note:
+                notes.append(note)
+                related_pending = True
         if not _click(page, "tp-yt-paper-radio-button[name='VIDEO_MADE_FOR_KIDS_NOT_MFK']", 15000):
             _fail(page, "youtube", "No se encontró la opción «No es contenido para niños» en YouTube Studio.")
         if tags:
@@ -388,7 +479,8 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str], p
     _save_status("youtube", connected=True, error=None)
     on_progress(1.0)
     return {"platform_id": vid or f"yt-browser-{int(time.time())}", "url": url, "privacy": privacy,
-            "note": " ".join(notes), "via": "navegador", "thumb_pending": thumb_pending}
+            "note": " ".join(notes), "via": "navegador", "thumb_pending": thumb_pending,
+            "related_pending": related_pending}
 
 
 # ── TikTok Studio ──────────────────────────────────────
@@ -665,7 +757,8 @@ def _ig_original_ratio(page) -> bool:
         _click(page, 'div[role="dialog"] svg[aria-label="Seleccionar recorte"], '
                      'div[role="dialog"] svg[aria-label="Select crop"]', 1500)  # cierra el menú de proporciones
         after = shape()
-        return after > before + 0.05 or after > 1.2  # un video vertical queda más alto que ancho
+        # el recorte por defecto es 1:1; en «Original» un vertical queda más alto y un horizontal (video largo) más ancho
+        return abs(after - before) > 0.05 or abs(after - 1.0) > 0.15
     except Exception:
         return False
 

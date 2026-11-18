@@ -79,19 +79,23 @@ def recompute(min_age_hours: float) -> dict:
             if key not in latest or s["ts"] > latest[key]["ts"]:
                 latest[key] = s
 
-    # normaliza por plataforma para que una no domine a otra
-    by_platform = defaultdict(list)
+    # normaliza por plataforma Y formato: un video largo solo se compara con largos de la misma red (antes los largos
+    # de YouTube, que casi no reciben impresiones en un canal nuevo, enseñaban «los videos largos rinden peor»)
+    by_group = defaultdict(list)
     for key, s in latest.items():
-        by_platform[key[0]].append(_r(s))
-    stats_p = {p: (sum(v) / len(v), (max(v) - min(v)) or 1.0) for p, v in by_platform.items()}
+        by_group[(key[0], fmt(hist[key]))].append(_r(s))
+    stats_p = {g: (sum(v) / len(v), (max(v) - min(v)) or 1.0) for g, v in by_group.items()}
+
+    def score(key, s) -> float:
+        mean, rng = stats_p[(key[0], fmt(hist[key]))]
+        return (_r(s) - mean) / rng
 
     styles = defaultdict(lambda: {"n": 0, "sum": 0.0})
     for key, s in latest.items():
         style = hist[key].get("hook_style")
         if not style:
             continue
-        mean, rng = stats_p[key[0]]
-        r = (_r(s) - mean) / rng
+        r = score(key, s)
         styles[style]["n"] += 1
         styles[style]["sum"] += r
 
@@ -99,8 +103,7 @@ def recompute(min_age_hours: float) -> dict:
     dims: dict[str, dict] = defaultdict(lambda: defaultdict(lambda: {"n": 0, "sum": 0.0}))
     for key, s in latest.items():
         h = hist[key]
-        mean, rng = stats_p[key[0]]
-        r = (_r(s) - mean) / rng
+        r = score(key, s)
         for dim, val in _traits(h).items():
             if val is not None:
                 dims[dim][val]["n"] += 1
@@ -117,6 +120,11 @@ def recompute(min_age_hours: float) -> dict:
     return result
 
 
+def fmt(h: dict) -> str:
+    """«long» o «short» (los registros viejos no guardaban el formato: se deduce del nombre del video)."""
+    return h.get("format") or ("long" if h.get("item") == "long" else "short")
+
+
 def _traits(h: dict) -> dict:
     dur = h.get("duration")
     bucket = None
@@ -128,14 +136,16 @@ def _traits(h: dict) -> dict:
     anims = h.get("animations")
     return {
         "music_mood": h.get("music_mood"),
-        "duration": bucket,
+        # la duración se compara solo dentro del mismo formato (un Short contra Shorts, un largo contra largos)
+        f"duration_{fmt(h)}": bucket,
         "animations": None if anims is None else ("sin animaciones" if anims == 0 else
                                                   "pocas (1-2)" if anims <= 2 else "varias (3+)"),
         "voice_engine": h.get("voice_engine"),
     }
 
 
-TRAIT_LABELS = {"music_mood": "música", "duration": "duración", "animations": "animaciones", "voice_engine": "voz"}
+TRAIT_LABELS = {"music_mood": "música", "duration_short": "duración de los Shorts",
+                "duration_long": "duración del video largo", "animations": "animaciones", "voice_engine": "voz"}
 
 
 def insights(min_n: int = 2) -> list[str]:
@@ -167,6 +177,25 @@ def choose_hook_style(exploration: float) -> tuple[str, str]:
         return random.choice(list(HOOK_STYLES)), "exploración aleatoria"
     best = max(HOOK_STYLES, key=lambda s: stats.get(s, {}).get("mean", -1e9))
     return best, f"mejor rendimiento histórico ({stats[best]['mean']:+.2f})"
+
+
+def choose_hook_styles(keys: list[str], exploration: float) -> dict[str, tuple[str, str]]:
+    """Un gancho DISTINTO por video del run ({"long": (estilo, motivo), "short_1": …}). Antes todo el run usaba el
+    mismo y el aprendizaje no distinguía el gancho del tema o del día; así compiten el mismo día, con el mismo tema,
+    y se aprende varias veces más rápido."""
+    stats = load_learning().get("styles", {})
+    out: dict[str, tuple[str, str]] = {}
+    for key in keys:
+        free = [s for s in HOOK_STYLES if s not in {v[0] for v in out.values()}] or list(HOOK_STYLES)
+        untried = [s for s in free if stats.get(s, {}).get("n", 0) < 2]
+        if untried:
+            out[key] = (random.choice(untried), "explorando (pocos datos de este estilo)")
+        elif random.random() < exploration:
+            out[key] = (random.choice(free), "exploración aleatoria")
+        else:
+            best = max(free, key=lambda s: stats.get(s, {}).get("mean", -1e9))
+            out[key] = (best, f"mejor rendimiento histórico ({stats[best]['mean']:+.2f})")
+    return out
 
 
 def top_own_titles(n: int = 5) -> list[str]:

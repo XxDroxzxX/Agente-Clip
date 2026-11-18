@@ -38,6 +38,9 @@ class Scene(BaseModel):
                            "personaje de la historia, una acción o momento concreto de la trama, algo fantástico o inexistente. "
                            "false si es genérica y fácil de encontrar en un banco de videos (paisaje, ciudad, comida, objetos, "
                            "gente anónima). Marca solo las escenas que de verdad lo necesitan.")
+    chapter: str = Field(default="", description="Solo en el video largo: título de capítulo (2-5 palabras, en el idioma "
+                         "del video) si esta escena abre un bloque nuevo; vacío en las demás. La primera escena del largo "
+                         "siempre lleva capítulo. En los Shorts siempre vacío.")
 
 
 class MusicBrief(BaseModel):
@@ -86,7 +89,7 @@ Reglas:
 - No inventes datos falsos; si das cifras, que sean conocidas y verificables."""
 
 
-def build_prompt(cfg: dict, research: dict, hook_style: str) -> str:
+def build_prompt(cfg: dict, research: dict, hook_style: str | dict) -> str:
     c, v = cfg["content"], cfg["video"]
     lines = [f"Nicho: {c['niche']}", f"Idioma de la narración: {c['language']}", f"Audiencia: {c['audience']}", ""]
     vids = research.get("videos", [])[:10]
@@ -109,12 +112,20 @@ def build_prompt(cfg: dict, research: dict, hook_style: str) -> str:
         lines.append("Hashtags más usados por los videos en tendencia del nicho (usa en cada video los 3-4 que de verdad "
                      "correspondan a su tema; no inventes otros parecidos): " + " ".join(research["top_hashtags"]))
         lines.append("")
-    lines.append(f"Estilo de gancho obligatorio para hoy: {hook_style} — {HOOK_STYLES[hook_style]}")
+    if isinstance(hook_style, dict):
+        # un gancho distinto por video: el aprendizaje compara estilos con el mismo tema y el mismo día
+        names = {"long": "Video largo"} | {f"short_{i}": f"Short {i}" for i in range(1, 10)}
+        lines.append("Estilo de gancho obligatorio de cada video (cada uno abre con SU estilo):")
+        lines += [f"- {names.get(k, k)}: {s} — {HOOK_STYLES[s]}" for k, s in hook_style.items()]
+    else:
+        lines.append(f"Estilo de gancho obligatorio para hoy: {hook_style} — {HOOK_STYLES[hook_style]}")
     lines.append("")
     if v["long_enabled"]:
         words = int(v["long_minutes"] * WORDS_PER_MINUTE)
         lines.append(f"VIDEO LARGO (horizontal): unos {v['long_minutes']} minutos ≈ {words} palabras de narración en total, "
-                     f"con introducción-gancho, 3-5 bloques de valor con ejemplos concretos, llamada a la acción breve y cierre.")
+                     f"con introducción-gancho, 3-5 bloques de valor con ejemplos concretos, llamada a la acción breve y cierre. "
+                     f"CAPÍTULOS: `chapter` en la primera escena y en la primera de cada bloque (4-7 capítulos en total, "
+                     f"títulos de 2-5 palabras que despierten curiosidad y usen términos que la gente busca).")
     else:
         lines.append("VIDEO LARGO: no se necesita; devuelve long_video con una sola escena breve.")
     n = int(v["shorts_count"])
@@ -268,7 +279,27 @@ def _gaps(pkg: "ScriptPackage", cfg: dict) -> list[str]:
     return out
 
 
-def generate(run: Run, cfg: dict, research: dict, hook_style: str) -> ScriptPackage:
+def chapters(plan: "VideoPlan", durations: list[float]) -> str:
+    """Capítulos de YouTube («0:00 Título») desde los `chapter` del guion y la duración real de cada escena.
+    YouTube los muestra solo si el primero está en 0:00, hay 3 o más y cada uno dura al menos 10 s."""
+    marks: list[tuple[float, str]] = []
+    t = 0.0
+    for sc, d in zip(plan.scenes, durations):
+        title = (getattr(sc, "chapter", "") or "").strip()
+        if title and (not marks or t - marks[-1][0] >= 10):
+            marks.append((t, title))
+        t += d
+    if not marks:
+        return ""
+    marks[0] = (0.0, marks[0][1])
+    if len(marks) > 1 and t - marks[-1][0] < 10:  # el último capítulo también debe durar 10 s
+        marks.pop()
+    if len(marks) < 3:
+        return ""
+    return "\n".join(f"{int(s) // 60}:{int(s) % 60:02d} {title}" for s, title in marks)
+
+
+def generate(run: Run, cfg: dict, research: dict, hook_style: str | dict) -> ScriptPackage:
     sid = "script"
     prompt = build_prompt(cfg, research, hook_style)
     provider = cfg["llm"]["provider"]

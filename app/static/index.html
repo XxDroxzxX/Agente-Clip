@@ -126,17 +126,29 @@
       <div class="two-col">
         <div class="card">
           <div class="card-head"><h2>Estilos de gancho</h2><span class="muted small" id="learnSamples"></span></div>
-          <p class="muted small">Cada video usa un estilo de gancho. Cuando sus métricas maduran, el agente elige más a menudo el que mejor rinde, sin dejar de explorar los demás.</p>
+          <p class="muted small">Cada video del día usa un estilo de gancho distinto (el largo y cada Short). Cuando sus métricas maduran, el agente elige más a menudo los que mejor rinden, sin dejar de probar los demás.</p>
           <div id="styleBars" class="style-bars"></div>
         </div>
         <div class="card">
           <div class="card-head"><h2>Cómo se mide</h2></div>
           <ul class="explain">
-            <li>Se consultan las métricas de todo lo publicado en los últimos días, no solo lo de hoy.</li>
+            <li>Se consultan las métricas de todo lo publicado en los últimos días, no solo lo de hoy: YouTube y Facebook por su API, TikTok desde TikTok Studio con tu sesión, Instagram por su API.</li>
             <li>Solo cuentan las publicaciones con al menos <b id="minAgeLbl">48</b> h de antigüedad.</li>
-            <li>Recompensa = log(vistas) × (1 + 5 × engagement), normalizada por plataforma.</li>
-            <li>TikTok no ofrece métricas por esta API, así que no entra en el cálculo.</li>
+            <li>Puntaje = log(vistas) × (1 + 5 × interacción). Compartir y guardar valen el doble que un «me gusta».</li>
+            <li>Cada video se compara solo con los de su misma red y formato (un Short de TikTok con Shorts de TikTok, un video largo de YouTube con largos de YouTube), para que una red o un formato no aplasten a los demás.</li>
+            <li>Además del gancho mide la música, la duración, las animaciones y la voz, y se lo cuenta al guionista.</li>
           </ul>
+        </div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-head"><h2>Por red social</h2></div>
+          <p class="muted small">Vistas sumadas de lo publicado (última medición de cada publicación).</p>
+          <div class="table-wrap"><table class="table" id="platformTable"></table></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Lo que ya aprendió</h2></div>
+          <ul class="explain" id="insightList"></ul>
         </div>
       </div>
       <div class="card">

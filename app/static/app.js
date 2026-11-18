@@ -643,9 +643,19 @@ async function loadLearning() {
         <span>${s ? `${s.mean >= 0 ? "+" : ""}${s.mean.toFixed(2)} · n=${s.n}` : "sin datos"}</span></div>
         <div class="sbar"><span class="mid"></span>${bar}</div></div>`;
     }).join("");
+    const fmtName = (f) => (f === "long" ? "Video largo" : "Shorts");
+    const sum = d.summary || [];
+    $("#platformTable").innerHTML = sum.length ? `<thead><tr><th>Red</th><th>Formato</th><th>Publicados</th><th>Vistas</th><th>Promedio</th></tr></thead>
+      <tbody>${sum.map((g) => `<tr><td><span class="platform ${g.platform}">${g.platform}</span></td><td>${fmtName(g.format)}</td>
+        <td class="num">${g.n}</td><td class="num">${g.measured ? fmtNum(g.views) : "—"}</td>
+        <td class="num">${g.measured ? fmtNum(Math.round(g.views / g.measured)) : "—"}</td></tr>`).join("")}</tbody>`
+      : '<tbody><tr><td class="muted">Aún no hay publicaciones registradas.</td></tr></tbody>';
+    const ins = d.insights || [];
+    $("#insightList").innerHTML = ins.length ? ins.map((x) => `<li>${esc(x)}</li>`).join("")
+      : `<li class="muted">Todavía no hay datos suficientes para sacar conclusiones (hacen falta al menos 2 publicaciones maduras de cada variante). Con varios días de publicaciones aparecerán aquí.</li>`;
     const pubs = d.publications;
-    $("#pubTable").innerHTML = pubs.length ? `<thead><tr><th>Fecha</th><th>Plataforma</th><th>Título</th><th>Gancho</th><th>Vistas</th><th>Likes</th><th>Coment.</th><th>Edad</th><th></th></tr></thead>
-      <tbody>${pubs.map((p) => `<tr><td>${fmtDate(p.published_at)}</td><td><span class="platform ${p.platform}">${p.platform}</span></td>
+    $("#pubTable").innerHTML = pubs.length ? `<thead><tr><th>Fecha</th><th>Plataforma</th><th>Formato</th><th>Título</th><th>Gancho</th><th>Vistas</th><th>Likes</th><th>Coment.</th><th>Edad</th><th></th></tr></thead>
+      <tbody>${pubs.map((p) => `<tr><td>${fmtDate(p.published_at)}</td><td><span class="platform ${p.platform}">${p.platform}</span></td><td>${fmtName(p.format)}</td>
         <td class="wrap">${esc(p.title)}</td><td>${esc((p.hook_style || "").replace("_", " "))}</td>
         <td class="num">${fmtNum(p.views)}</td><td class="num">${fmtNum(p.likes)}</td><td class="num">${fmtNum(p.comments)}</td>
         <td class="num">${p.age_hours != null ? `${Math.round(p.age_hours)} h` : "—"}</td>
@@ -904,7 +914,7 @@ function renderSettings() {
       </div>` : ""}
     </div>
     <div class="platform-block">
-      ${toggle("publish.tiktok", "TikTok", "Solo los Shorts verticales.")}
+      ${toggle("publish.tiktok", "TikTok", d.publish.long_everywhere !== false ? "Shorts y video largo." : "Solo los Shorts verticales.")}
       ${d.publish.tiktok ? `<div class="form-grid">
         ${field("publish.tiktok_method", "Cómo se conecta", "select", { options: [["browser", "Navegador: tu sesión de TikTok Studio (recomendado)"], ["api", "API de TikTok (sin auditoría: privado o borrador)"]], help: "Con el navegador no hace falta una app de desarrollador y se puede publicar en público." })}
         ${d.publish.tiktok_method === "api" ? field("publish.tiktok_mode", "Modo", "select", { options: [["inbox", "Enviar a borradores (terminas en la app)"], ["direct", "Publicación directa"]] }) : ""}
@@ -920,7 +930,13 @@ function renderSettings() {
       ${d.publish.facebook ? `<div class="form-grid">${choiceField("publish.facebook_graph_version", "Versión de Graph API", cfg.catalog.graph_versions.map((v) => [v, `${v} (recomendada)`]), { placeholder: "vNN.0, p. ej. v25.0", help: "Cámbiala solo si Meta avisa que esta versión quedó obsoleta." })}</div>` : ""}
     </div>
     <div class="platform-block">
-      ${toggle("publish.instagram", "Instagram Reels", "Solo los Shorts. Usa el mismo token de página de Facebook; tu Instagram debe ser profesional y estar vinculado a la página.")}
+      ${toggle("publish.instagram", "Instagram Reels", (d.publish.long_everywhere !== false ? "Shorts y video largo (hasta 15 min). " : "Solo los Shorts. ") + "Usa el mismo token de página de Facebook; tu Instagram debe ser profesional y estar vinculado a la página.")}
+    </div>
+    <div class="platform-block">
+      ${toggle("publish.long_everywhere", "Video largo en todas las redes", "Además de YouTube y Facebook, el video largo se publica en TikTok e Instagram (horizontal, con su formato original).")}
+    </div>
+    <div class="platform-block">
+      ${toggle("publish.link_long", "Enlazar los Shorts al video largo", "Cada Short lleva el enlace del video largo del día en la descripción y, en YouTube, como «Vídeo relacionado» (aparece como botón dentro del Short). Es la forma más efectiva de llevar público a los videos largos en un canal nuevo. YouTube pide una verificación única para usar «Vídeo relacionado».")}
     </div>
     <div class="platform-block">
       ${toggle("publish.meta_fallback", "Segunda vía si falla Meta", "La API de Meta a veces rechaza un video por un fallo suyo. Con esto, Instagram se publica por navegador (con la sesión de Conexiones) y un Reel de Facebook que falle se sube como video de la página. Nunca se reintenta si hay duda de que ya se publicó.")}
