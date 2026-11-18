@@ -216,11 +216,13 @@ YT_VERIFY_NOTE = ("La miniatura no se aplicó: YouTube exige verificar tu númer
                   "personalizadas. Hazlo una vez en youtube.com/verify (con la cuenta del canal); luego la app las "
                   "pondrá sola. Para este video, pulsa «Publicar» en el run y se aplicará la miniatura pendiente.")
 _YT_THUMB_STATE = """() => {
-  const ed = document.querySelector('ytcp-video-custom-still-editor, ytcp-thumbnail-uploader');
   const dlg = [...document.querySelectorAll('tp-yt-paper-dialog, ytcp-dialog, [role=dialog]')]
       .find(d => d.offsetParent !== null && /verific|verify/i.test(d.innerText || ''));
-  const img = ed && [...ed.querySelectorAll('img')].some(i => /^(blob:|data:|https:\\/\\/i\\d?\\.ytimg)/.test(i.src || ''));
-  return {verify: !!dlg, uploaded: !!img, busy: !!ed && /subiendo|uploading/i.test(ed.innerText || '')};
+  // al elegir el archivo, la vista previa visible pasa a mostrar la imagen local (src «data:»/«blob:»); el texto
+  // oculto («Subiendo…») de otras vistas previas no cuenta
+  const prev = [...document.querySelectorAll('ytcp-video-thumbnail-editor #preview-button')]
+      .find(b => b.offsetParent !== null && /^(data:|blob:)/.test((b.querySelector('img') || {}).src || ''));
+  return {verify: !!dlg, uploaded: !!prev, busy: !!prev && /subiendo|uploading/i.test(prev.innerText || '')};
 }"""
 
 
@@ -228,11 +230,33 @@ def _yt_thumbnail(page, thumbnail: Path) -> str:
     """Sube la miniatura en el formulario de Studio (subida o edición). Devuelve una nota si no se aplicó.
     Escribir el archivo en el <input> oculto no hace nada: YouTube solo la acepta al pulsar «Subir archivo»; y si el
     canal no verificó el teléfono, ese botón abre un aviso en vez del selector de archivos."""
-    btn = page.locator("ytcp-thumbnail-uploader #select-button").first
-    try:
-        btn.wait_for(state="visible", timeout=20000)
-        btn.scroll_into_view_if_needed(timeout=5000)
-    except Exception:
+    # sin miniatura propia: botón «Subir archivo»; con una ya puesta (automática o anterior) el botón se oculta y la
+    # opción está en el menú «Opciones» de la miniatura actual
+    direct = page.locator("ytcp-thumbnail-uploader #select-button:visible").first
+    menu = page.locator("ytcp-video-thumbnail-editor #options-button:visible").first
+    for _ in range(40):
+        if direct.count() or menu.count():
+            break
+        page.wait_for_timeout(500)
+    if direct.count():
+        direct.scroll_into_view_if_needed(timeout=5000)
+        btn = direct
+    elif menu.count():
+        menu.scroll_into_view_if_needed(timeout=5000)
+        try:  # el botón «Opciones» es una capa que solo se activa al pasar el mouse por la miniatura
+            page.locator("ytcp-video-thumbnail-editor #preview-button:visible").first.hover(timeout=5000)
+        except Exception:
+            pass
+        menu.click(force=True)
+        # «Subir archivo» si la actual es automática; «Cambiar» si ya hay una subida
+        btn = page.locator("tp-yt-paper-item[test-id='UPLOAD_FILE']:visible, "
+                           "tp-yt-paper-item[test-id='CHANGE']:visible").first
+        try:
+            btn.wait_for(state="visible", timeout=5000)
+        except Exception:
+            page.keyboard.press("Escape")
+            return "La miniatura no se aplicó (no apareció «Subir archivo» en el menú de la miniatura)."
+    else:
         return "La miniatura no se aplicó (no apareció la sección «Miniatura» en YouTube Studio)."
     chosen: list = []
 
