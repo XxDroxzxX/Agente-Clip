@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 from typing import Callable
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from . import settings as S
 
@@ -96,8 +96,15 @@ negaciones. issue: el problema en pocas palabras, en español."""
 
 class Verdict(BaseModel):
     score: int
-    issue: str = Field("", max_length=200)
-    better_prompt: str = Field("", max_length=600)
+    issue: str = Field("", description="Máximo 200 caracteres.")
+    better_prompt: str = Field("", description="Máximo 600 caracteres.")
+
+    @field_validator("issue", "better_prompt", mode="before")
+    @classmethod
+    def _cut(cls, v, info):
+        # un texto largo no invalida la nota: antes se perdía la respuesta entera («respuesta incompleta»)
+        # y una toma correcta se regeneraba (5-10 min de GPU)
+        return str(v or "")[:200 if info.field_name == "issue" else 600]
 
 
 def judge_shot(cfg: dict, frames: list[Path], narration: str, prompt: str, log) -> Verdict | None:

@@ -274,7 +274,20 @@ def generate(run: Run, cfg: dict, research: dict, hook_style: str) -> ScriptPack
     provider = cfg["llm"]["provider"]
     label, fn = PROVIDERS.get(provider, PROVIDERS["claude"])
     run.step_progress(sid, 0.15, f"Escribiendo con {label}…", force=True)
-    pkg, note = fn(cfg, prompt)
+    try:
+        pkg, note = fn(cfg, prompt)
+    except Exception as e:
+        # el modelo a veces entra en bucle y el JSON llega cortado: se pide una vez a otro modelo de la cadena
+        if provider != "gemini" or not any(w in str(e).lower() for w in ("json", "formato", "validation")):
+            raise
+        from . import gemini
+        chain = gemini.chain(cfg["llm"].get("gemini_model"))
+        if len(chain) < 2:
+            raise
+        run.warn(f"El guion llegó cortado ({str(e)[:100]}); se pide de nuevo con {chain[1]}.", sid)
+        retry_cfg = copy.deepcopy(cfg)
+        retry_cfg["llm"]["gemini_model"] = chain[1]
+        pkg, note = fn(retry_cfg, prompt)
     gaps = _gaps(pkg, cfg)
     for attempt in range(2):  # a veces el modelo corta la respuesta antes de tiempo: se pide de nuevo
         if not gaps:

@@ -130,6 +130,7 @@ def upload(video: Path, title: str, description: str, tags: list[str], privacy: 
     actual = resp.get("status", {}).get("privacyStatus", privacy)
     url = f"https://youtube.com/shorts/{vid}" if is_short else f"https://youtu.be/{vid}"
     notes = []
+    thumb_pending = False
     if actual != privacy:
         notes.append(f"YouTube dejó el video como «{actual}». Los proyectos de API sin auditoría "
                      "solo pueden publicar en privado.")
@@ -138,12 +139,13 @@ def upload(video: Path, title: str, description: str, tags: list[str], privacy: 
             yt.thumbnails().set(videoId=vid, media_body=MediaFileUpload(str(thumbnail), mimetype="image/jpeg")).execute()
         except Exception as e:
             text = str(e)
+            thumb_pending = True
             if "forbidden" in text.lower() or "403" in text:
                 notes.append("La miniatura no se aplicó: YouTube exige verificar el canal con tu teléfono "
                              "(youtube.com/verify) para usar miniaturas personalizadas.")
             else:
                 notes.append(f"La miniatura no se aplicó ({text[:150]}).")
-    return {"platform_id": vid, "url": url, "privacy": actual, "note": " ".join(notes)}
+    return {"platform_id": vid, "url": url, "privacy": actual, "note": " ".join(notes), "thumb_pending": thumb_pending}
 
 
 def fetch_stats(ids: list[str]) -> dict[str, dict]:

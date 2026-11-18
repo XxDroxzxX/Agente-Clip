@@ -212,6 +212,76 @@ def _yt_wait_upload(page, on_progress: Callable[[float], None], limit_s: int = 3
     raise BrowserError("La subida a YouTube no terminó en una hora.")
 
 
+YT_VERIFY_NOTE = ("La miniatura no se aplicó: YouTube exige verificar tu número de teléfono para usar miniaturas "
+                  "personalizadas. Hazlo una vez en youtube.com/verify (con la cuenta del canal); luego la app las "
+                  "pondrá sola. Para este video, pulsa «Publicar» en el run y se aplicará la miniatura pendiente.")
+_YT_THUMB_STATE = """() => {
+  const ed = document.querySelector('ytcp-video-custom-still-editor, ytcp-thumbnail-uploader');
+  const dlg = [...document.querySelectorAll('tp-yt-paper-dialog, ytcp-dialog, [role=dialog]')]
+      .find(d => d.offsetParent !== null && /verific|verify/i.test(d.innerText || ''));
+  const img = ed && [...ed.querySelectorAll('img')].some(i => /^(blob:|data:|https:\\/\\/i\\d?\\.ytimg)/.test(i.src || ''));
+  return {verify: !!dlg, uploaded: !!img, busy: !!ed && /subiendo|uploading/i.test(ed.innerText || '')};
+}"""
+
+
+def _yt_thumbnail(page, thumbnail: Path) -> str:
+    """Sube la miniatura en el formulario de Studio (subida o edición). Devuelve una nota si no se aplicó.
+    Escribir el archivo en el <input> oculto no hace nada: YouTube solo la acepta al pulsar «Subir archivo»; y si el
+    canal no verificó el teléfono, ese botón abre un aviso en vez del selector de archivos."""
+    btn = page.locator("ytcp-thumbnail-uploader #select-button").first
+    try:
+        btn.wait_for(state="visible", timeout=20000)
+        btn.scroll_into_view_if_needed(timeout=5000)
+    except Exception:
+        return "La miniatura no se aplicó (no apareció la sección «Miniatura» en YouTube Studio)."
+    chosen: list = []
+
+    def on_chooser(fc):  # patchright no acepta métodos integrados (list.append) como manejador
+        chosen.append(fc)
+
+    page.on("filechooser", on_chooser)
+    try:
+        btn.click()
+        for _ in range(16):
+            page.wait_for_timeout(500)
+            if chosen or page.evaluate(_YT_THUMB_STATE)["verify"]:
+                break
+    finally:
+        page.remove_listener("filechooser", on_chooser)
+    if not chosen:
+        if page.evaluate(_YT_THUMB_STATE)["verify"]:
+            # se cierra el aviso sin pulsar «Verificar»
+            _click(page, "tp-yt-paper-dialog:visible #cancel-button, ytcp-dialog:visible #cancel-button, "
+                         "[role=dialog]:visible button:has-text('Cancelar'), [role=dialog]:visible button:has-text('Cancel')",
+                   3000) or page.keyboard.press("Escape")
+            return YT_VERIFY_NOTE
+        return "La miniatura no se aplicó (YouTube no abrió el selector de archivos)."
+    chosen[0].set_files(str(thumbnail))
+    for _ in range(30):  # hasta 30 s: que aparezca la vista previa de la miniatura subida
+        page.wait_for_timeout(1000)
+        st = page.evaluate(_YT_THUMB_STATE)
+        if st["uploaded"] and not st["busy"]:
+            return ""
+    return "No se pudo confirmar que la miniatura quedó aplicada; revísala en YouTube Studio."
+
+
+def set_youtube_thumbnail(video_id: str, thumbnail: Path, visible: bool = False) -> None:
+    """Aplica la miniatura a un video ya publicado (página de edición de Studio → Guardar)."""
+    with _browser("youtube", visible=visible) as ctx:
+        if not _logged_in(ctx, "youtube"):
+            raise BrowserError("YouTube no tiene sesión iniciada. Ve a Configuración → Conexiones.")
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        page.set_default_timeout(60000)
+        page.goto(f"https://studio.youtube.com/video/{video_id}/edit", wait_until="domcontentloaded")
+        page.wait_for_timeout(5000)
+        note = _yt_thumbnail(page, Path(thumbnail))
+        if note:
+            raise BrowserError(note)
+        if not _click(page, "ytcp-button#save, #save", 15000):
+            _fail(page, "youtube", "No se encontró el botón «Guardar» en YouTube Studio.")
+        page.wait_for_timeout(5000)
+
+
 def upload_youtube(video: Path, title: str, description: str, tags: list[str], privacy: str, is_short: bool,
                    on_progress: Callable[[float], None], thumbnail: Path | None = None, visible: bool = False) -> dict:
     if privacy not in YT_VISIBILITY:
@@ -219,6 +289,7 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str], p
     if is_short and "#shorts" not in title.lower():
         title = f"{title[:90]} #Shorts"
     notes = []
+    thumb_pending = False
     with _browser("youtube", visible=visible) as ctx:
         if not _logged_in(ctx, "youtube"):
             _save_status("youtube", connected=False)
@@ -242,12 +313,10 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str], p
         if description.strip():
             _yt_fill(page, "#description-textarea #textbox", description[:4900])
         if thumbnail and Path(thumbnail).is_file() and not is_short:
-            try:
-                page.locator("ytcp-thumbnail-uploader input[type='file'], #file-loader input[type='file']").first \
-                    .set_input_files(str(thumbnail))
-                page.wait_for_timeout(2000)
-            except Exception:
-                notes.append("La miniatura no se aplicó (YouTube exige verificar el canal con tu teléfono).")
+            note = _yt_thumbnail(page, Path(thumbnail))
+            if note:
+                notes.append(note)
+                thumb_pending = True
         if not _click(page, "tp-yt-paper-radio-button[name='VIDEO_MADE_FOR_KIDS_NOT_MFK']", 15000):
             _fail(page, "youtube", "No se encontró la opción «No es contenido para niños» en YouTube Studio.")
         if tags:
@@ -295,7 +364,7 @@ def upload_youtube(video: Path, title: str, description: str, tags: list[str], p
     _save_status("youtube", connected=True, error=None)
     on_progress(1.0)
     return {"platform_id": vid or f"yt-browser-{int(time.time())}", "url": url, "privacy": privacy,
-            "note": " ".join(notes), "via": "navegador"}
+            "note": " ".join(notes), "via": "navegador", "thumb_pending": thumb_pending}
 
 
 # ── TikTok Studio ──────────────────────────────────────

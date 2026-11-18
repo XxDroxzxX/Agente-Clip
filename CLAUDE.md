@@ -55,6 +55,10 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   sube como video de página; el video largo se reintenta una vez. Nunca se reintenta si la orden de publicar quedó
   sin respuesta (`instagram.UncertainPublish`, error «(publicación)» de Facebook). Verificado 2026-11-15: la API
   falló con short_2 y el respaldo lo publicó.
+- YouTube miniatura (2026-11-17): escribir en el `input#file-loader` oculto no hace nada; hay que pulsar «Subir
+  archivo» (`ytcp-thumbnail-uploader #select-button`) y usar el selector de archivos (`browser._yt_thumbnail`). Si el
+  canal no verificó el teléfono, ese botón abre un aviso «debes verificar tu número de teléfono» (era la causa real):
+  se avisa y la subida queda con `thumb_pending`; «Publicar» en el run la aplica después (`set_youtube_thumbnail`).
 - YouTube: si Google muestra «Acceso bloqueado», publicar la app OAuth (Google Auth Platform → Público → Publicar app).
 
 ## Arquitectura (agente/)

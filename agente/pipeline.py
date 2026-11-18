@@ -363,6 +363,8 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
     for n, (key, platform) in enumerate(targets):
         if (key, platform) in done_keys:
             run.info(f"{key} ya estaba publicado en {platform}; se omite.", "publish")
+            if platform == "youtube":
+                _retry_thumbnail(run, key, p)
             continue
         plan = _plan_from_script(run, key)
         video = run.dir / key / "final.mp4"
@@ -421,6 +423,25 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
     run.step_end("publish", "done" if failed == 0 else "failed", f"{ok} publicados, {failed} con error")
 
 
+def _retry_thumbnail(run: Run, key: str, p: dict) -> None:
+    """«Publicar» en un run ya publicado: aplica la miniatura que YouTube no aceptó la primera vez (p. ej. porque el
+    canal aún no había verificado el teléfono)."""
+    from .publish import browser
+    thumb = run.dir / key / "thumbnail.jpg"
+    rec = next((u for u in run.state.get("uploads", []) if u.get("item") == key and u.get("platform") == "youtube"
+                and u.get("platform_id") and u.get("thumb_pending")), None)
+    if not rec or not thumb.is_file() or rec["platform_id"].startswith("yt-browser-"):
+        return
+    try:
+        browser.set_youtube_thumbnail(rec["platform_id"], thumb, visible=bool(p.get("browser_visible")))
+    except Exception as e:
+        run.warn(f"youtube: la miniatura de {key} sigue sin aplicarse — {str(e)[:300]}", "publish")
+        return
+    rec["thumb_pending"] = False
+    run.set()  # guarda el cambio en el registro de subidas
+    run.info(f"youtube: miniatura de {key} aplicada.", "publish")
+
+
 def _instagram(run: Run, p: dict, video, caption: str, prog, key: str) -> dict:
     """API de Meta y, si falla sin haber publicado, respaldo por navegador (instagram.com con la sesión guardada)."""
     from .publish import browser, instagram
@@ -434,7 +455,8 @@ def _instagram(run: Run, p: dict, video, caption: str, prog, key: str) -> dict:
         if not browser.status("instagram").get("connected"):
             raise RuntimeError(f"{e} Para que se publique solo por otra vía cuando esto pase, inicia sesión en "
                                "Instagram en Configuración → Conexiones (respaldo por navegador).")
-        run.warn(f"instagram: la API de Meta falló con {key} ({str(e)[:140]}); se publica por navegador.", "publish")
+        reason = str(e).split(" Es un fallo intermitente")[0][:200]  # sin la explicación larga (salía cortada)
+        run.warn(f"instagram: la API de Meta falló con {key} ({reason}); se publica por navegador.", "publish")
         prog(0.0)
         # la etiqueta de IA solo se marca si el usuario lo pide (por defecto no)
         ai = bool(p.get("ai_label")) and "Generado con IA" in (run.state["items"].get(key, {}).get("credits") or [])

@@ -39,6 +39,20 @@ GENERIC_TAGS = {"shorts", "short", "youtube", "youtubeshorts", "viral", "video",
                 "parati", "foryoupage", "fy", "trending", "tiktok", "reels"}
 
 
+LATIN_LANGS = {"en", "es", "pt", "fr", "de", "it", "nl", "pl", "tr", "id", "vi"}
+
+
+def same_script(title: str, lang: str) -> bool:
+    """Para idiomas de alfabeto latino, descarta títulos escritos mayormente en otro alfabeto (malayalam, coreano…)."""
+    if lang not in LATIN_LANGS:
+        return True
+    letters = [c for c in title if c.isalpha()]
+    if not letters:
+        return True
+    other = sum(1 for c in letters if ord(c) > 0x24F)  # fuera de latín básico y extendido
+    return other / len(letters) < 0.3
+
+
 def top_hashtags(videos: list[dict], n: int = 12) -> list[str]:
     """Hashtags más usados por los videos en tendencia del nicho, pesados por su rendimiento (vistas/día).
     Se excluyen los genéricos (#shorts, #fyp…): esos los agrega la app según la plataforma."""
@@ -147,6 +161,16 @@ def research(run: Run, cfg: dict) -> dict:
             "hashtags": HASHTAG.findall(v["snippet"]["title"] + " " + v["snippet"].get("description", ""))
                         + [t.replace(" ", "") for t in v["snippet"].get("tags", [])[:15]],
         })
+
+    # relevanceLanguage solo ordena, no filtra: salían tendencias en francés y hashtags de cine malayalam en un
+    # canal en inglés. Se quitan los videos cuyo idioma declarado es otro (los sin idioma declarado se quedan).
+    langs = {v["id"]: (v["snippet"].get("defaultAudioLanguage") or v["snippet"].get("defaultLanguage") or "")
+             .lower().split("-")[0] for v in resp.get("items", [])}
+    same = [v for v in videos if langs.get(v["video_id"]) in ("", content["language"])
+            and same_script(v["title"], content["language"])]
+    if len(same) >= 5 and len(same) < len(videos):
+        run.info(f"Se descartaron {len(videos) - len(same)} videos en otros idiomas.", sid)
+        videos = same
 
     zv = _z([math.log1p(v["views_per_day"]) for v in videos])
     ze = _z([v["engagement"] for v in videos])

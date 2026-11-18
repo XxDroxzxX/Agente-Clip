@@ -291,19 +291,33 @@ def _from_stock(sources: list, kind: str, query: str, min_dur: float, log) -> tu
 
 
 def _gather(sources: list, query: str, min_dur: float, k: int, log) -> list[Cand]:
-    out: list[Cand] = []
+    """Candidatos de todos los bancos, intercalados. Antes el segundo banco solo entraba si el primero no llenaba el
+    cupo, y con búsquedas específicas casi todo lo de un solo banco salía rechazado por la visión."""
+    per_src: list[list[Cand]] = []
+    share = math.ceil(k / max(1, len(sources))) + 1
     for src in list(sources):
         try:
-            out += src.candidates(query, min_dur, k - len(out))
+            per_src.append(src.candidates(query, min_dur, share))
         except Exception as e:
             if "no es válida" in str(e):
                 sources.remove(src)
                 log(f"{e} Se omite {src.name} en este run.", "warn")
             else:
                 log(str(e), "warn")
-        if len(out) >= k:
-            break
-    return out
+    out: list[Cand] = []
+    for n in range(max((len(c) for c in per_src), default=0)):
+        out += [c[n] for c in per_src if n < len(c)]
+    return out[:k]
+
+
+def _borrow(scenes: dict, seqs: dict, i: int) -> list:
+    """Clips aprobados que les sobran a las escenas vecinas (i-1, i+1, luego i-2, i+2): se quitan de ahí."""
+    for j in (i - 1, i + 1, i - 2, i + 2):
+        if j in scenes and j in seqs:
+            need = len(scenes[j])
+            if len(seqs[j]) > need:
+                return [seqs[j].pop(need)]
+    return []
 
 
 def assign_stock(shots: list[Shot], sources: list, cfg: dict, portrait: bool,
@@ -319,7 +333,7 @@ def assign_stock(shots: list[Shot], sources: list, cfg: dict, portrait: bool,
     smart = vision.provider(cfg) is not None
     cands: dict[int, list[Cand]] = {}
     for n, (i, group) in enumerate(scenes.items()):
-        k = len(group) + (3 if smart else 1)
+        k = len(group) + (5 if smart else 1)
         cands[i] = _gather(sources, group[0].query, max(s.duration for s in group), k, log)
         progress(0.4 * (n + 1) / len(scenes))
     order: dict[int, list[int]] = {}
@@ -359,6 +373,13 @@ def assign_stock(shots: list[Shot], sources: list, cfg: dict, portrait: bool,
             seqs[i] = []
             log(f"Escena {i + 1}: ningún clip de stock encaja con «{group[0].query}»; se generará con IA.", "info")
             continue
+        if ok == 0:
+            borrowed = _borrow(scenes, seqs, i)
+            if borrowed:  # un clip aprobado que le sobra a la escena vecina (mismo tramo de la historia)
+                seqs[i] = borrowed
+                log(f"Escena {i + 1}: sin clip propio para «{group[0].query}»; se usa uno aprobado de la escena vecina.",
+                    "info")
+                ok = len(borrowed)
         if ok == 0:  # último recurso: lo mejor que haya, avisando
             seqs[i] = list(cands.get(i, []))
             log(f"Escena {i + 1}: ningún clip encaja con «{group[0].query}»; se usa el mejor disponible.", "warn")
