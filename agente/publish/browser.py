@@ -312,6 +312,10 @@ def _yt_related(page, long_title: str) -> str:
     dialog = None
     for _ in range(16):
         page.wait_for_timeout(500)
+        picker = page.locator("ytcp-video-pick-dialog:visible").first
+        if picker.count():  # «Elegir un vídeo específico»: una tarjeta por video del canal
+            dialog = picker
+            break
         for d in page.locator(_YT_DIALOG).all():
             try:
                 text = d.inner_text(timeout=1000)
@@ -330,11 +334,17 @@ def _yt_related(page, long_title: str) -> str:
         page.keyboard.press("Escape")
         return "El Short no se enlazó al video largo (no se abrió la lista de videos)."
     try:
-        search = dialog.locator("input:visible").first
-        if search.count():
-            search.fill(want)
-            page.wait_for_timeout(2500)
-        dialog.get_by_text(want, exact=False).first.click(timeout=10000)
+        # solo los videos propios: el diálogo también tiene un buscador de «videos de otros canales»
+        card = dialog.locator("ytcp-entity-card").filter(has_text=want).filter(has_not_text="#Shorts")
+        if not card.count():
+            search = dialog.locator("input#search-yours")
+            if search.count():
+                search.first.fill(want)
+                page.wait_for_timeout(2500)
+        card = dialog.locator("ytcp-entity-card").filter(has_text=want).filter(has_not_text="#Shorts")
+        if not card.count():
+            raise RuntimeError("sin tarjeta")
+        card.first.click(timeout=10000)
         page.wait_for_timeout(1500)
         # algunos selectores piden confirmar la elección
         _click(page, "[role=dialog]:visible #done-button, [role=dialog]:visible #save-button, "
