@@ -541,13 +541,13 @@ const ICON = {
 function renderCreator() {
   const c = app.creator;
   if (!c) return;
-  const chip = (icon, title, value, anchor) => `<button type="button" class="cchip" data-goto="${anchor}" title="${esc(title)}: ${esc(value)} — cambiar en Configuración">
-    ${icon}<span><small>${esc(title)}</small><b>${esc(value)}</b></span></button>`;
+  const chip = (icon, title, value, anchor) => `<button type="button" class="cchip" data-goto="${anchor}" title="${esc(title)}: ${esc(value)} (clic para cambiarlo)">
+    ${icon}<span class="v">${esc(value)}</span></button>`;
   $("#creatorChips").innerHTML = [
-    chip(c.style_img ? `<img src="/static/styles/${encodeURIComponent(c.style_img)}" alt="">` : `<span class="ci">${ICON.palette}</span>`, "Estilo", c.style, "s-visual"),
-    chip(`<span class="ci">${ICON.mic}</span>`, "Voz", c.voice, "s-video"),
-    chip(`<span class="ci">${ICON.film}</span>`, "Formato", c.format, "s-video"),
-    chip(`<span class="ci">${ICON.image}</span>`, "Material", c.provider, "s-visual"),
+    chip(c.style_img ? `<img src="/static/styles/${encodeURIComponent(c.style_img)}" alt="">` : ICON.palette, "Estilo visual", c.style, "s-visual"),
+    chip(ICON.mic, "Voz", c.voice, "s-video"),
+    chip(ICON.film, "Formato", c.format, "s-video"),
+    chip(ICON.image, "Material", c.provider, "s-visual"),
   ].join("");
   // el nicho va en la frase de arriba (como enlace), no como un botón más que partía la fila en dos
   const niche = (c.niche || "").split(" - ")[0].trim();
@@ -903,16 +903,18 @@ function styleCards(path, label, presets, opts = {}) {
   const cards = presets.map(([val, txt]) => {
     const img = (cfg.stylePreviews || {})[val];
     const on = !custom && String(val) === String(v);
+    // nombre corto en la tarjeta («Cámara de seguridad / metraje encontrado» → «Cámara de seguridad»); el completo, al pasar el mouse
+    const short = txt.split(" (")[0].split(" / ")[0];
     return `<label class="style-card ${on ? "on" : ""}" title="${esc(txt)}">
       <input type="radio" name="${path}" data-path="${path}" value="${esc(val)}" ${on ? "checked" : ""}>
-      ${img ? `<img src="/static/styles/${encodeURIComponent(img)}" alt="" loading="lazy">` : '<span class="style-ph">🎨</span>'}
-      <span class="style-name">${esc(txt)}</span></label>`;
+      ${img ? `<img src="/static/styles/${encodeURIComponent(img)}" alt="" loading="lazy">` : `<span class="style-ph">${ICON.palette}</span>`}
+      <span class="style-name">${esc(short)}</span></label>`;
   }).join("");
   const customCard = `<label class="style-card custom ${custom ? "on" : ""}" title="Escribe tu propio estilo">
     <input type="radio" name="${path}" data-choice="${path}" value="${CUSTOM}" ${custom ? "checked" : ""}>
     ${ICON.pencil}<span class="custom-name">${custom ? "✓ " : ""}Personalizado…</span></label>`;
   const inp = custom ? `<input type="text" data-path="${path}" value="${esc(v)}" placeholder="${esc(opts.placeholder || "Escribe el valor")}" style="margin-top:8px">` : "";
-  return `<div class="field full"><label>${esc(label)}</label><div class="style-grid">${cards}${customCard}</div>${inp}${opts.help ? `<span class="help">${opts.help}</span>` : ""}</div>`;
+  return `<div class="field full">${label ? `<label>${esc(label)}</label>` : ""}<div class="style-grid">${cards}${customCard}</div>${custom ? inp : ""}${custom && opts.help ? `<span class="help">${opts.help}</span>` : ""}</div>`;
 }
 // Lista de voces con botón para escucharla antes de elegirla.
 function voicePick(id, path, label, options, engine, help) {
@@ -1057,35 +1059,49 @@ function renderSettings() {
       ["veo", "Video IA con Veo (Google)", "Usa tu «Gemini API key (imagen y video)». Alta calidad, en la nube; se combina con stock como las demás. Google puede cobrar por segundo de video según tu plan."],
       ["comfyui", "Video IA local en tu GPU (ComfyUI)", "Gratis, en tu tarjeta NVIDIA. Lento, por eso se combina con stock: IA en las escenas que lo necesitan y clips de Pixabay/Pexels en las genéricas."],
     ])}
-    ${d.video.visual_provider === "comfyui" ? `<div class="form-grid" style="margin-top:16px">
-      ${field("video.ai_select", "Qué escenas van con IA", "select", { options: [["smart", "Mixto inteligente: IA solo donde hace falta, stock en lo genérico"], ["hook", "Las primeras tomas (el gancho)"], ["all", "Todas (muy lento o costoso)"]], help: "En modo mixto, el guion marca las escenas con el personaje o momentos concretos de la historia; paisajes, ciudades y objetos salen gratis de Pixabay/Pexels. Si el stock no tiene nada que encaje con una escena, esa escena también se genera con IA." })}
-      ${numSelect("video.comfy_max_shots", "Máximo de tomas con IA por video", [[0, "Sin tope"], [1, "1"], [2, "2"], [3, "3"], [4, "4"], [6, "6"], [8, "8"], [10, "10"], [15, "15"]], { help: "Tope de tiempo o de costo." })}
-      ${field("video.fal_scope", "Usar IA en", "select", { options: [["shorts", "Solo Shorts (stock para el largo)"], ["all", "Shorts y video largo"]] })}
-      ${field("video.comfy_resolution", "Resolución IA", "select", { options: [["480p", "480p (recomendada con 6–8 GB de VRAM)"], ["544p", "544p"], ["704p", "704p (nativa, pide 12 GB o más)"]], help: "Se escala al tamaño final del video." })}
-      ${numSelect("video.comfy_segment_seconds", "Segundos por segmento IA", [[3, "3 s"], [4, "4 s"], [5, "5 s (recomendado)"], [6, "6 s"]])}
-      ${field("video.comfy_chain", "Continuidad", "select", { options: [["scene", "Encadenar dentro de cada escena (corte al cambiar)"], ["all", "Una sola cadena para todo el video"]], help: "Cada toma sigue desde el último cuadro de la anterior. Con una sola cadena el video es más continuo, pero tiende a alejarse de la narración." })}
-      ${numSelect("video.comfy_director_min", "Nota mínima del director IA", [[4, "4 de 10 (permisivo)"], [5, "5 de 10"], [6, "6 de 10 (recomendado)"], [7, "7 de 10"], [8, "8 de 10 (exigente)"]], { help: "Las imágenes clave con nota menor se repiten (hasta 3 intentos) y las tomas se regeneran una vez; se queda la mejor." })}
-      ${styleCards("video.ai_style", "Estilo visual", cfg.catalog.visual_styles, { placeholder: "en inglés, p. ej. cinematic, film grain", help: "Cada tarjeta muestra la misma escena en ese estilo. Se agrega a cada escena generada con IA. «Personalizado…» para escribir el tuyo (en inglés)." })}
-      ${numSelect("video.comfy_steps", "Pasos de muestreo", [[12, "12 (rápido, menos detalle)"], [16, "16"], [20, "20 (recomendado)"], [25, "25"], [30, "30 (más detalle, más lento)"]])}
-      ${field("video.comfy_path", "Carpeta de ComfyUI portable", "text", { help: "Si ComfyUI está cerrado, el run lo abre y lo cierra al terminar (libera la memoria)." })}
-      ${field("video.comfy_url", "Dirección de ComfyUI", "text", { help: "Otro PC de la red también sirve, p. ej. <code>http://192.168.1.50:8188</code>." })}
-      ${choiceField("video.comfy_workflow", "Workflow", cfg.workflows.map((w) => [w, w]), { placeholder: "ruta completa a un .json", help: "Los de <code>agente/workflows/</code>; «Personalizado…» para uno propio en formato API con marcadores {{prompt}}, {{width}}…" })}
-    </div>
-    ${toggle("video.character_ref", "Personaje consistente", "Se crea una imagen del personaje una vez por video y cada escena parte de ella: la misma cara y ropa en todo el video.")}
-    ${d.video.character_ref ? `<div class="form-grid">${field("video.character_engine", "Con qué se crea el personaje", "select", { options: [["auto", "Automático (local si está instalado; si no, Nano Banana)"], ["local", "Local en tu GPU: Qwen-Image-Edit (gratis)"], ["nanobanana", "Nano Banana (clave de imagen de Gemini, requiere facturación)"]], help: "El modo local necesita los modelos de Qwen-Image-Edit en ComfyUI (ver la documentación). Licencia Apache 2.0: uso comercial permitido." })}</div>` : ""}
-    ${toggle("video.comfy_keyframes", "Imagen clave primero", "Cada escena empieza con una imagen (~1 min) que el director revisa y repite si no muestra la escena; luego se anima. Evita gastar 5-8 min en tomas de video que salen mal.")}
-    ${toggle("video.comfy_director", "Director IA", "Tras cada toma, una IA con visión (Gemini gratis) compara dos cuadros con la narración y regenera la toma si se desvió. Cuesta más tiempo de GPU solo cuando regenera.")}
-    <div class="form-grid">
-      <div class="field full"><span class="help">⏱ En una RTX 4050 de 6 GB cada toma de 5 s a 480p tarda ~8 min (la primera ~11 min, porque carga los modelos): un Short con 2 tomas IA suma ~20 min. Si una toma falla, se usa un clip de stock.</span></div>
+    ${["comfyui", "veo"].includes(d.video.visual_provider) ? `<div class="sub-sec">
+      <h3>Estilo visual</h3>
+      <p class="sub-desc">Cada tarjeta muestra la misma escena en ese estilo; se aplica a todo lo que se genera con IA.</p>
+      ${styleCards("video.ai_style", "", cfg.catalog.visual_styles, { placeholder: "en inglés, p. ej. cinematic, film grain, moody lighting", help: "Escríbelo en inglés: es lo que se agrega a cada escena." })}
     </div>` : ""}
-    ${d.video.visual_provider !== "fal" || d.video.ai_select !== "all" ? `<div class="form-grid" style="margin-top:16px">
-      ${field("video.smart_clips", "Selección inteligente de clips", "select", { options: [["auto", "Automática (Gemini gratis si hay clave, si no Claude)"], ["gemini", "Solo Gemini (gratis)"], ["claude", "Solo Claude (de pago, Haiku)"], ["off", "Desactivada (primer resultado del banco)"]], help: "Una IA con visión mira las miniaturas de varios clips por escena y elige el que mejor muestra lo que dice la narración." })}
+    ${d.video.visual_provider === "comfyui" ? `<div class="sub-sec">
+      <h3>Qué escenas se generan con IA</h3>
+      <div class="form-grid">
+        ${field("video.ai_select", "Escenas con IA", "select", { options: [["smart", "Mixto inteligente: IA solo donde hace falta"], ["hook", "Las primeras tomas (el gancho)"], ["all", "Todas (muy lento)"]], help: "En modo mixto, la IA va en las escenas con el personaje o momentos concretos; paisajes y objetos salen gratis del stock." })}
+        ${numSelect("video.comfy_max_shots", "Máximo de tomas IA por video", [[0, "Sin tope"], [1, "1"], [2, "2"], [3, "3"], [4, "4"], [6, "6"], [8, "8"], [10, "10"], [15, "15"]], { help: "Cada toma de 5 s tarda ~8 min en tu GPU." })}
+        ${field("video.fal_scope", "Usar IA en", "select", { options: [["shorts", "Solo Shorts (stock para el largo)"], ["all", "Shorts y video largo"]] })}
+      </div>
+    </div>
+    <div class="sub-sec">
+      <h3>Calidad</h3>
+      ${toggle("video.character_ref", "Personaje consistente", "La misma cara y ropa en todo el video: cada escena parte de una imagen de referencia del personaje.")}
+      ${d.video.character_ref ? `<div class="form-grid inset">${field("video.character_engine", "Con qué se crea el personaje", "select", { options: [["auto", "Automático (local si está instalado)"], ["local", "Local en tu GPU: Qwen-Image-Edit (gratis)"], ["nanobanana", "Nano Banana (requiere facturación de Google)"]] })}</div>` : ""}
+      ${toggle("video.comfy_keyframes", "Imagen clave primero", "Cada escena empieza con una imagen (~1 min) que se revisa antes de animarla: evita gastar 5-8 min en tomas que salen mal.")}
+      ${toggle("video.comfy_director", "Director IA", "Revisa cada toma con visión (Gemini gratis) y la regenera si no muestra lo que dice la narración.")}
+      ${d.video.comfy_director ? `<div class="form-grid inset">${numSelect("video.comfy_director_min", "Nota mínima del director", [[4, "4 de 10 (permisivo)"], [5, "5 de 10"], [6, "6 de 10 (recomendado)"], [7, "7 de 10"], [8, "8 de 10 (exigente)"]])}</div>` : ""}
+    </div>
+    <details class="adv" data-adv ${advOpen ? "open" : ""}>
+      <summary>Ajustes técnicos de ComfyUI</summary>
+      <div class="form-grid">
+        ${field("video.comfy_resolution", "Resolución IA", "select", { options: [["480p", "480p (recomendada con 6–8 GB)"], ["544p", "544p"], ["704p", "704p (pide 12 GB o más)"]], help: "Se escala al tamaño final del video." })}
+        ${numSelect("video.comfy_segment_seconds", "Segundos por segmento", [[3, "3 s"], [4, "4 s"], [5, "5 s (recomendado)"], [6, "6 s"]])}
+        ${numSelect("video.comfy_steps", "Pasos de muestreo", [[12, "12 (rápido)"], [16, "16"], [20, "20 (recomendado)"], [25, "25"], [30, "30 (más detalle)"]])}
+        ${field("video.comfy_chain", "Continuidad", "select", { options: [["scene", "Encadenar dentro de cada escena"], ["all", "Una sola cadena para todo el video"]], help: "Con una sola cadena es más continuo, pero se aleja de la narración." })}
+        ${field("video.comfy_path", "Carpeta de ComfyUI portable", "text", { help: "Si está cerrado, el run lo abre y lo cierra al terminar." })}
+        ${field("video.comfy_url", "Dirección de ComfyUI", "text", { help: "Otro PC de la red también sirve." })}
+        ${choiceField("video.comfy_workflow", "Workflow", cfg.workflows.map((w) => [w, w]), { placeholder: "ruta completa a un .json", help: "Los de <code>agente/workflows/</code> o uno propio en formato API." })}
+      </div>
+    </details>` : ""}
+    ${d.video.visual_provider !== "fal" || d.video.ai_select !== "all" ? `<div class="sub-sec">
+      <h3>Clips de stock</h3>
+      <div class="form-grid">
+        ${field("video.smart_clips", "Selección inteligente de clips", "select", { options: [["auto", "Automática (Gemini gratis si hay clave, si no Claude)"], ["gemini", "Solo Gemini (gratis)"], ["claude", "Solo Claude (de pago, Haiku)"], ["off", "Desactivada (primer resultado del banco)"]], help: "Una IA con visión mira varios clips por escena y elige el que mejor muestra lo que dice la narración." })}
+      </div>
     </div>` : ""}
     ${d.video.visual_provider === "veo" ? `<div class="form-grid" style="margin-top:16px">
       ${field("video.ai_select", "Qué escenas van con IA", "select", { options: [["smart", "Mixto inteligente: IA solo donde hace falta, stock en lo genérico"], ["hook", "Las primeras tomas (el gancho)"], ["all", "Todas (costoso)"]] })}
       ${numSelect("video.comfy_max_shots", "Máximo de tomas con IA por video", [[0, "Sin tope"], [1, "1"], [2, "2"], [3, "3"], [4, "4"], [6, "6"], [8, "8"]], { help: "Tope de costo: cada toma de Veo dura hasta 8 s." })}
       ${field("video.fal_scope", "Usar IA en", "select", { options: [["shorts", "Solo Shorts (stock para el largo)"], ["all", "Todo (costoso)"]] })}
-      ${styleCards("video.ai_style", "Estilo visual", cfg.catalog.visual_styles, { placeholder: "en inglés, p. ej. cinematic, film grain" })}
       <div class="field full">${toggle("video.character_ref", "Personaje consistente (Nano Banana)", "Cada escena parte de una imagen con el mismo personaje y Veo la anima.")}${toggle("video.comfy_director", "Director IA", "Revisa cada imagen clave y la repite si no muestra la escena (las imágenes cuestan mucho menos que el video).")}</div>
       <div class="field full"><span class="help">${cfg.secrets.gemini_media_api_key ? "✓ Clave de imagen y video guardada." : '<span class="err-text">Falta la «Gemini API key (imagen y video)» en Credenciales.</span>'} Si Veo falla en una toma, esa toma usa un clip de stock.</span></div>
     </div>` : ""}
@@ -1279,7 +1295,9 @@ function ollamaPresets() {
   return [...inst, ...rec.filter(([m]) => !cfg.ollamaModels.includes(m))];
 }
 
+let advOpen = false;  // «Ajustes técnicos» sigue abierto aunque la pantalla se redibuje
 function bindSettingsInputs() {
+  $$("#settingsBody details[data-adv]").forEach((dt) => { dt.ontoggle = () => { advOpen = dt.open; }; });
   $$("#settingsBody [data-listen]").forEach((b) => { b.onclick = () => listenVoice(b); });
   $$("#settingsBody [data-choice]").forEach((el) => el.addEventListener("change", () => {
     const path = el.dataset.choice;

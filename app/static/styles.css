@@ -317,8 +317,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .radio-card span { font-size: 12.5px; color: var(--muted); }
 
 /* estilo visual: se elige viendo una imagen de muestra (la misma escena en cada estilo) */
-.style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; margin-top: 4px; }
-.style-card { position: relative; aspect-ratio: 9 / 13; border-radius: 11px; overflow: hidden; cursor: pointer;
+.style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
+.style-card { position: relative; aspect-ratio: 3 / 4; border-radius: 11px; overflow: hidden; cursor: pointer;
   border: 2px solid var(--border-strong); background: var(--surface-2); transition: transform .12s, border-color .12s; }
 .style-card:hover { transform: translateY(-2px); }
 .style-card.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -329,6 +329,20 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .style-card .style-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 8px 7px; font-size: 12px; font-weight: 620;
   color: #fff; line-height: 1.2; background: linear-gradient(transparent, rgba(0,0,0,.82)); }
 .style-card.on .style-name::before { content: "✓ "; color: var(--accent-2); }
+/* secciones dentro de una tarjeta de ajustes (Material visual): título, opciones y lo técnico plegado */
+.sub-sec { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+.sub-sec h3 { font-size: 13.5px; font-weight: 640; margin: 0 0 4px; }
+.sub-sec .sub-desc { font-size: 12.5px; color: var(--muted); margin: 0 0 12px; }
+.sub-sec h3 + .form-grid { margin-top: 10px; }
+.sub-sec h3 + .toggle-row { border-top: 0; padding-top: 6px; }
+.form-grid.inset { margin: 0 0 6px; padding-left: 14px; border-left: 2px solid var(--border); }
+details.adv { margin-top: 22px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); }
+details.adv > summary { cursor: pointer; padding: 12px 16px; font-weight: 600; font-size: 13px; color: var(--text-2); list-style: none;
+  display: flex; align-items: center; gap: 8px; }
+details.adv > summary::-webkit-details-marker { display: none; }
+details.adv > summary::before { content: "›"; font-size: 16px; line-height: 1; transition: transform .15s; color: var(--muted); }
+details.adv[open] > summary::before { transform: rotate(90deg); }
+details.adv > .form-grid { padding: 4px 16px 16px; }
 /* «Personalizado…»: sin imagen, se ve como una tarjeta normal (no con el degradado de las fotos) */
 .style-card.custom { border-style: dashed; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted); }
 .style-card.custom:hover { color: var(--text); border-color: var(--accent); }
@@ -336,31 +350,22 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .style-card.custom svg { width: 22px; height: 22px; }
 .style-card.custom .custom-name { font-size: 12px; font-weight: 600; }
 
-/* «¿Qué video quieres crear?» */
-.creator-card { padding: 22px 24px 24px; background: radial-gradient(90% 120% at 50% -30%, var(--accent-soft), transparent 62%), var(--surface); }
-.creator-title { font-size: 21px; text-align: center; margin: 0 0 4px; letter-spacing: -.015em; }
-.creator-sub { text-align: center; margin: 0 0 16px; font-size: 13px; }
-.creator-sub a { color: var(--text-2); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
-.creator-sub a:hover { color: var(--text); text-decoration-color: var(--accent); }
-.creator-box { max-width: 1020px; margin: 0 auto; border: 1px solid var(--border-strong); border-radius: 16px; background: var(--surface-2);
-  padding: 14px 14px 12px; transition: border-color .15s, box-shadow .15s; }
-.creator-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.creator-box textarea, .creator-box textarea:focus { width: 100%; border: 0; box-shadow: none; background: transparent; resize: none; padding: 2px 4px;
-  font: 15px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color: var(--text); min-height: 48px; max-height: 220px; overflow-y: auto; }
-.creator-box textarea::placeholder { color: var(--muted); }
-.creator-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 8px; }
-.creator-chips { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
-.creator-go { display: flex; align-items: center; gap: 14px; margin-left: auto; }
-.cchip { display: inline-flex; align-items: center; gap: 9px; padding: 4px 11px 4px 4px; border-radius: 10px; border: 1px solid var(--border);
-  background: var(--surface); color: var(--text); cursor: pointer; font-size: 12.5px; line-height: 1.25; text-align: left; max-width: 230px;
-  transition: border-color .15s, background .15s; }
-.cchip:hover { border-color: var(--accent); background: var(--accent-soft); }
-.cchip > span { min-width: 0; }
-.cchip b { display: block; font-weight: 560; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cchip small { display: block; color: var(--muted); font-size: 11px; }
-.cchip img, .cchip .ci { width: 30px; height: 30px; border-radius: 7px; object-fit: cover; flex: none; display: grid; place-items: center;
-  background: var(--accent-soft); color: var(--accent); }
-.cchip .ci svg { width: 16px; height: 16px; }
+/* «¿Qué video quieres crear?»: una tarjeta como las demás (título a la izquierda, campo normal, opciones en píldoras) */
+.creator-card .card-head { margin-bottom: 12px; }
+.creator-card .card-head a { color: var(--text-2); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.creator-card .card-head a:hover { color: var(--text); text-decoration-color: var(--accent); }
+.creator-input { resize: none; min-height: 0; max-height: 220px; overflow-y: auto; padding: 11px 13px;
+  font: 14.5px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+.creator-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+.creator-chips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+.creator-go { display: flex; align-items: center; gap: 16px; margin-left: auto; }
+.cchip { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px 0 8px; border-radius: 99px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2); cursor: pointer; font-size: 12.5px;
+  white-space: nowrap; max-width: 260px; transition: border-color .15s, color .15s; }
+.cchip:hover { border-color: var(--border-strong); color: var(--text); }
+.cchip svg { width: 14px; height: 14px; color: var(--muted); }
+.cchip img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex: none; margin-left: -3px; }
+.cchip .v { overflow: hidden; text-overflow: ellipsis; color: var(--text); }
 
 /* calendario de publicaciones */
 .btn.icon { width: 38px; padding: 0; justify-content: center; }

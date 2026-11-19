@@ -56,18 +56,18 @@
       <div class="banner warn hidden" id="readinessBanner"></div>
 
       <div class="card creator-card hidden" id="creatorCard">
-        <h2 class="creator-title">¿Qué video quieres crear?</h2>
-        <p class="muted creator-sub">Escribe una idea o pega un guion. Si lo dejas vacío, el agente elige el tema con las tendencias de <a href="#" id="creatorNiche" data-goto="s-content" title="Cambiar el nicho">tu nicho</a>.</p>
-        <div class="creator-box">
-          <textarea id="ideaInput" rows="2" maxlength="500" placeholder="Ej.: la historia real del faro que se apagaba solo cada noche de 1987…"></textarea>
-          <div class="creator-bar">
-            <div class="creator-chips" id="creatorChips"></div>
-            <div class="creator-go">
-              <label class="switch" title="Publicar automáticamente en tus redes cuando termine">
-                <input type="checkbox" id="optPublish"><span class="track"></span><span>Publicar al terminar</span>
-              </label>
-              <button class="btn primary" id="btnStart"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>Crear video</button>
-            </div>
+        <div class="card-head">
+          <h2>¿Qué video quieres crear?</h2>
+          <span class="muted small">Si lo dejas vacío, el tema sale de las tendencias de <a href="#" id="creatorNiche" data-goto="s-content" title="Cambiar el nicho">tu nicho</a></span>
+        </div>
+        <textarea id="ideaInput" class="creator-input" rows="2" maxlength="500" placeholder="Escribe una idea o pega un guion. Ej.: la historia real del faro que se apagaba solo cada noche de 1987…"></textarea>
+        <div class="creator-bar">
+          <div class="creator-chips" id="creatorChips"></div>
+          <div class="creator-go">
+            <label class="switch" title="Publicar automáticamente en tus redes cuando termine">
+              <input type="checkbox" id="optPublish"><span class="track"></span><span>Publicar al terminar</span>
+            </label>
+            <button class="btn primary" id="btnStart"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>Crear video</button>
           </div>
         </div>
       </div>
