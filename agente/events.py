@@ -33,7 +33,10 @@ def new_run_id() -> str:
 
 
 class Run:
-    def __init__(self, run_id: str, create: bool = True, options: dict | None = None):
+    def __init__(self, run_id: str, create: bool = True, options: dict | None = None, claim: bool = False):
+        """claim=True (reanudar o publicar): este proceso toma el run y lo marca «en curso». Sin claim solo se
+        abre para leer o anotar: antes el aviso final y el apagado automático lo volvían a marcar «en curso» y,
+        al cerrarse el proceso, quedaba como «interrumpido» aunque había terminado."""
         self.id = run_id
         self.dir = RUNS_DIR / run_id
         self.events_path = self.dir / "events.jsonl"
@@ -60,10 +63,12 @@ class Run:
             self._save()
         else:
             self.state = read_json(self.state_path, {})
-            self.state["pid"] = os.getpid()
-            self.state["status"] = "running"
-            self.state["error"] = None
-            self._save()
+            if claim:
+                self.state["pid"] = os.getpid()
+                self.state["pid_since"] = time.time()  # cuándo nació este proceso (al reanudar ya no es «started»)
+                self.state["status"] = "running"
+                self.state["error"] = None
+                self._save()
 
     # ── persistencia ───────────────────────────────────
     def _save(self):

@@ -80,16 +80,21 @@ def _run_dir(run_id: str) -> Path:
 
 def _active() -> dict | None:
     lock = read_json(LOCK_FILE)
-    if lock and pid_alive(lock.get("pid", 0)):
+    if lock and pid_alive(lock.get("pid", 0), lock.get("since")):
         return lock
     return None
+
+
+def _interrupted(st: dict) -> bool:
+    """Quedó «en curso» pero su proceso ya no existe (se apagó el PC, se cerró la ventana…)."""
+    return st.get("status") == "running" and not pid_alive(st.get("pid", 0), st.get("pid_since") or st.get("started"))
 
 
 def _summary(d: Path) -> dict | None:
     st = read_json(d / "run.json")
     if not st:
         return None
-    if st.get("status") == "running" and not pid_alive(st.get("pid", 0)):
+    if _interrupted(st):
         st["status"] = "interrupted"
     items = st.get("items", {})
     thumb = next((f"{k}/thumb.jpg" for k in items if (d / k / "thumb.jpg").is_file()), None)
@@ -265,7 +270,7 @@ def run_metrics():
 def get_run(run_id: str):
     d = _run_dir(run_id)
     st = read_json(d / "run.json", {})
-    if st.get("status") == "running" and not pid_alive(st.get("pid", 0)):
+    if _interrupted(st):
         st["status"] = "interrupted"
     script = read_json(d / "script.json")
     research = read_json(d / "research.json")
@@ -285,8 +290,9 @@ def publish_run(run_id: str):
 def resume_run(run_id: str):
     d = _run_dir(run_id)
     st = read_json(d / "run.json", {})
-    if st.get("status") not in ("failed", "cancelled", "interrupted"):
-        raise HTTPException(400, "Solo se pueden reintentar runs fallidos o cancelados.")
+    # un run interrumpido (p. ej. se apagó el PC) sigue guardado como «running»: antes se rechazaba
+    if st.get("status") not in ("failed", "cancelled", "interrupted") and not _interrupted(st):
+        raise HTTPException(400, "Solo se pueden reintentar runs fallidos, cancelados o interrumpidos.")
     if st.get("options", {}).get("mode") == "metrics":
         raise HTTPException(400, "Para métricas, inicia una actualización nueva.")
     _spawn(["--resume", run_id], run_id)

@@ -38,6 +38,26 @@ EDIT_MODELS = {"unet": "qwen-image-edit-2511-Q2_K.gguf", "text_encoders": "Qwen2
                "loras": "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors"}
 
 
+GPU_HOT, GPU_COOL = 83.0, 70.0  # °C: sobre GPU_HOT se pausa antes de la siguiente toma hasta bajar a GPU_COOL
+
+
+def cool_down(log: Callable[[str], None], hot: float = GPU_HOT, cool: float = GPU_COOL, max_wait: float = 600) -> None:
+    """Pausa entre tomas si la GPU está muy caliente. Un run de horas con la GPU al máximo en un portátil puede
+    hacer que se apague solo por temperatura (pasó el 2026-11-18 a 1 h 40 min de run, sin error de Windows)."""
+    from .util import gpu_temperature
+    t = gpu_temperature()
+    if t is None or t < hot:
+        return
+    log(f"GPU a {t:.0f} °C: pausa para que se enfríe antes de la siguiente toma.")
+    t0 = time.time()
+    while time.time() - t0 < max_wait:
+        time.sleep(15)
+        t = gpu_temperature()
+        if t is None or t <= cool:
+            break
+    log(f"GPU a {t if t is not None else '?'} °C tras {(time.time() - t0) / 60:.1f} min de pausa; se continúa.")
+
+
 def edit_ready(comfy_path: str) -> bool:
     """¿Están los modelos de Qwen-Image-Edit en la carpeta de ComfyUI?"""
     if not comfy_path:
@@ -303,6 +323,7 @@ class ComfyVideo:
         return dest
 
     def _fetch(self, wf: dict, dest: Path, log: Callable[[str], None], image: bool = False) -> None:
+        cool_down(log)
         outputs = self._wait(self._queue(wf), log)
         out = self.find_image(outputs) if image else self.find_video(outputs)
         dest.parent.mkdir(parents=True, exist_ok=True)

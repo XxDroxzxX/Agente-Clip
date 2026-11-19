@@ -31,7 +31,7 @@ class StepFailed(Exception):
 
 def _acquire_lock(run_id: str):
     lock = read_json(LOCK_FILE)
-    if lock and pid_alive(lock.get("pid", 0)):
+    if lock and pid_alive(lock.get("pid", 0), lock.get("since")):  # tras reiniciar, otro programa puede tener ese pid
         print(f"[ERROR] Ya hay un proceso en curso (run {lock.get('run_id')}).", flush=True)
         sys.exit(2)
     import os
@@ -169,6 +169,11 @@ def step_visuals(run: Run, cfg: dict, items, audio) -> dict:
         broll = []
     try:
         for idx, (key, plan, portrait) in enumerate(items):
+            done_files = _item_shots(run, key)
+            if done_files:  # al reanudar: este video ya tenía su material listo (shots.json se escribe al final)
+                all_shots[key] = done_files
+                run.info(f"{key}: material visual ya preparado; se reutiliza.", "visuals")
+                continue
             W, H = render.RESOLUTIONS[(v["quality"], portrait)]
             shots = visuals.plan_shots(plan.scenes, [s.duration for s in audio[key]], getattr(plan, "visual_bible", ""))
             use_ai = v["visual_provider"] in ("fal", "comfyui", "veo") and (v["fal_scope"] == "all" or portrait)
@@ -654,14 +659,23 @@ def _load_audio(run: Run, items) -> dict | None:
     return out
 
 
+def _item_shots(run: Run, key: str) -> list | None:
+    """Tomas ya preparadas de un video (None si falta alguna)."""
+    f = run.dir / key / "shots.json"
+    if not f.is_file():
+        return None
+    try:
+        files = [run.dir / p for p in json.loads(f.read_text(encoding="utf-8"))]
+    except ValueError:
+        return None
+    return files if files and all(p.is_file() for p in files) else None
+
+
 def _load_shots(run: Run, items) -> dict | None:
     out = {}
     for key, _, _ in items:
-        f = run.dir / key / "shots.json"
-        if not f.is_file():
-            return None
-        files = [run.dir / p for p in json.loads(f.read_text(encoding="utf-8"))]
-        if not files or not all(p.is_file() for p in files):
+        files = _item_shots(run, key)
+        if files is None:
             return None
         out[key] = files
     return out
@@ -670,7 +684,7 @@ def _load_shots(run: Run, items) -> dict | None:
 def resume(run_id: str) -> int:
     """Retoma un run fallido o cancelado reutilizando lo que ya quedó listo (guion, voces, tomas, videos)."""
     cfg = S.load()
-    run = Run(run_id, create=False)
+    run = Run(run_id, create=False, claim=True)
     steps = run.state["steps"]
     for sid, s in steps.items():  # lo que no terminó vuelve a quedar pendiente
         if s["status"] in ("failed", "cancelled", "running") or (s["status"] == "skipped" and sid in ("publish", "metrics")):
@@ -732,7 +746,7 @@ def _skip_pending(run: Run):
 
 def publish_only(run_id: str) -> int:
     cfg = S.load()
-    run = Run(run_id, create=False)
+    run = Run(run_id, create=False, claim=True)
     run.info("Publicación manual iniciada.")
     try:
         step_publish(run, cfg)
@@ -775,6 +789,8 @@ def main(argv=None) -> int:
 
     run_id = a.publish_only or a.resume or a.run_id or new_run_id()
     _acquire_lock(run_id)
+    from .util import keep_awake
+    keep_awake(True)  # un run de horas no debe cortarse porque Windows suspendió el equipo
     try:
         if a.publish_only:
             return publish_only(run_id)
@@ -786,6 +802,7 @@ def main(argv=None) -> int:
         return _notify(run_id, full_run(run_id, publish))
     finally:
         _release_lock()
+        keep_awake(False)
         if a.scheduled and not (a.publish_only or a.metrics_only or a.resume):
             _maybe_shutdown(run_id)
 

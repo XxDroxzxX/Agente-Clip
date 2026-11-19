@@ -219,6 +219,18 @@ Objetivo del usuario: video de calidad profesional tipo cine o anime generado **
   luego imagen→video para personajes consistentes, publicación programada en YouTube (`publishAt`), voz clonada local,
   subtítulos con alineación forzada local (Whisper) para la voz de Gemini.
 
+## Runs interrumpidos (2026-11-18)
+
+- El PC se apagó solo a 1 h 40 min de un run (Kernel-Power 41 sin bugcheck, enchufado, batería al 100 %, en plena
+  carga de Qwen): probable protección térmica del portátil. Ahora: `util.keep_awake` impide la suspensión durante el
+  run y `comfyui.cool_down` pausa antes de cada toma IA si la GPU pasa de 83 °C (hasta bajar a 70 °C; `nvidia-smi`).
+- Un run cortado queda `status=running` en run.json. El servidor lo muestra «Interrumpido» (`server._interrupted`) y
+  ahora sí deja «Reintentar» (antes `/resume` lo rechazaba porque leía el estado guardado). `pid_alive(pid, since)`
+  compara la hora de creación del proceso: tras reiniciar, Windows reutiliza números de proceso.
+- `Run(run_id, create=False)` ya NO marca el run «en curso»; solo con `claim=True` (reanudar, publicar). Antes, abrirlo
+  para leer o anotar (aviso final, apagado, scripts) lo dejaba «running» y luego «Interrumpido» aunque había terminado.
+- Al reanudar, el paso visual reutiliza cada video con `shots.json` completo (`pipeline._item_shots`).
+
 ## Convenciones
 
 - Mensajes al usuario y textos de la interfaz en español, claros y sin jerga; errores siempre traducidos a pasos concretos.
