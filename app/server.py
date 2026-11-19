@@ -1020,7 +1020,17 @@ def put_schedule(body: dict = Body(...)):
                        capture_output=True, text=True, creationflags=0x08000000)
     if r.returncode != 0:
         raise HTTPException(500, r.stderr.strip() or r.stdout.strip())
+    _task_settings()
     return get_schedule()
+
+
+def _task_settings() -> bool:
+    """Ajustes de la tarea diaria que schtasks no permite: no detenerla si el portátil pasa a batería (Windows la
+    cortaba sin dejar rastro) y, si el PC estaba apagado a la hora, ejecutarla en cuanto se pueda."""
+    ps = (f"$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable "
+          f"-MultipleInstances IgnoreNew; Set-ScheduledTask -TaskName '{TASK_NAME}' -Settings $s | Out-Null")
+    r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, creationflags=0x08000000)
+    return r.returncode == 0
 
 
 def main():

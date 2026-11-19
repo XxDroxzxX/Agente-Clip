@@ -230,6 +230,13 @@ Objetivo del usuario: video de calidad profesional tipo cine o anime generado **
 - `Run(run_id, create=False)` ya NO marca el run «en curso»; solo con `claim=True` (reanudar, publicar). Antes, abrirlo
   para leer o anotar (aviso final, apagado, scripts) lo dejaba «running» y luego «Interrumpido» aunque había terminado.
 - Al reanudar, el paso visual reutiliza cada video con `shots.json` completo (`pipeline._item_shots`).
+- Ejecución diaria del 2026-11-18 21:00 murió en silencio a los 2 min (sin error de Python ni de Windows, enchufado).
+  Punto débil encontrado: `run.log` hacía `print` antes de guardar el evento y la salida pasaba por `| Tee-Object` de
+  una ventana oculta de PowerShell: si esa consola desaparece, el print falla y el run muere sin rastro. Ahora el evento
+  se guarda primero, los print fallidos se ignoran, el propio proceso escribe `console.log` (`--console-log`,
+  `pipeline._SafeTee`) y la ejecución diaria reanuda un run interrumpido de las últimas 20 h (`_interrupted_recent`).
+  La tarea se ajusta al guardarla (`server._task_settings`: no detenerse en batería, ejecutar si el PC estaba apagado).
+  Los tests que llaman `pipeline.main(--scheduled)` deben simular `_interrupted_recent` (si no, ven los runs reales).
 
 ## Elegir viendo y escuchando (2026-11-19, idea tomada de JayMaker)
 

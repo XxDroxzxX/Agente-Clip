@@ -24,6 +24,7 @@ class ShutdownTest(unittest.TestCase):
                 mock.patch.object(pipeline, "metrics_only", return_value=0), \
                 mock.patch.object(pipeline, "_notify", side_effect=lambda r, c: c), \
                 mock.patch.object(pipeline, "Run"), \
+                mock.patch.object(pipeline, "_interrupted_recent", return_value=None), \
                 mock.patch.object(subprocess, "run") as run:
             pipeline.main(argv)
         return [c for c in run.call_args_list if c.args and c.args[0][0] == "shutdown"]

@@ -92,8 +92,13 @@ class Run:
 
     # ── logs ───────────────────────────────────────────
     def log(self, msg: str, level: str = "info", step: str | None = None):
-        print(redact(f"[{level.upper()}] {msg}"), flush=True)
+        # primero el registro del run y después la pantalla: si la consola desaparece (la ventana oculta de la
+        # ejecución diaria se cerró), un print fallido no debe tumbar el run sin dejar rastro (pasó el 2026-11-18)
         self._emit({"type": "log", "level": level, "msg": msg, "step": step})
+        try:
+            print(redact(f"[{level.upper()}] {msg}"), flush=True)
+        except (OSError, ValueError):
+            pass
 
     def info(self, msg, step=None):
         self.log(msg, "info", step)

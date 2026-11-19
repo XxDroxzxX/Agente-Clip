@@ -14,6 +14,7 @@ import json
 import sys
 import time
 import traceback
+from pathlib import Path
 
 from . import music as music_mod
 from . import learning, metrics, render, research, scriptgen
@@ -819,9 +820,29 @@ def main(argv=None) -> int:
     ap.add_argument("--scheduled", action="store_true", help="run de la ejecución diaria (puede apagar el PC al final)")
     ap.add_argument("--idea", default="", help="tema propio para el guion (en vez de solo las tendencias)")
     ap.add_argument("--like", default="", metavar="RUN_ID", help="hacer otro run como ese (misma fórmula, tema nuevo)")
+    ap.add_argument("--console-log", default="", metavar="ARCHIVO",
+                    help="copia de la salida en este archivo, escrita por el propio proceso (ejecución diaria)")
     a = ap.parse_args(argv)
 
-    run_id = a.publish_only or a.resume or a.run_id or new_run_id()
+    daily = a.scheduled and not (a.publish_only or a.metrics_only or a.resume)
+    resume_id = a.resume
+    log_path = Path(a.console_log) if a.console_log else None
+    if daily:
+        # la ejecución diaria anterior quedó cortada (PC apagado, ventana cerrada…): se retoma en vez de empezar otra
+        resume_id = _interrupted_recent() or ""
+        if resume_id and log_path:
+            from .paths import RUNS_DIR
+            try:  # la carpeta nueva que preparó run_day.ps1 queda sin uso
+                if log_path.parent.is_dir() and not any(log_path.parent.iterdir()):
+                    log_path.parent.rmdir()
+            except OSError:
+                pass
+            log_path = RUNS_DIR / resume_id / "console.log"
+    if log_path:
+        _tee_console(log_path)
+    if resume_id and daily:
+        print(f"[INFO] Ejecución diaria: el run {resume_id} había quedado interrumpido; se reanuda.", flush=True)
+    run_id = a.publish_only or resume_id or a.run_id or new_run_id()
     _acquire_lock(run_id)
     from .util import keep_awake
     keep_awake(True)  # un run de horas no debe cortarse porque Windows suspendió el equipo
@@ -830,15 +851,63 @@ def main(argv=None) -> int:
             return publish_only(run_id)
         if a.metrics_only:
             return metrics_only(run_id)
-        if a.resume:
+        if resume_id:
             return _notify(run_id, resume(run_id))
         publish = True if a.publish else False if a.no_publish else S.load()["publish"]["auto_publish"]
         return _notify(run_id, full_run(run_id, publish, idea=a.idea, like=a.like))
     finally:
         _release_lock()
         keep_awake(False)
-        if a.scheduled and not (a.publish_only or a.metrics_only or a.resume):
+        if daily:
             _maybe_shutdown(run_id)
+
+
+class _SafeTee:
+    """Salida a la consola (si sigue existiendo) y a un archivo. Si la consola desaparece, sigue con el archivo."""
+
+    def __init__(self, stream, file):
+        self.stream, self.file = stream, file
+
+    def write(self, s):
+        for target in (self.file, self.stream):
+            try:
+                target.write(s)
+            except (OSError, ValueError, AttributeError):
+                pass
+        return len(s)
+
+    def flush(self):
+        for target in (self.file, self.stream):
+            try:
+                target.flush()
+            except (OSError, ValueError, AttributeError):
+                pass
+
+    def reconfigure(self, **kw):
+        pass
+
+
+def _tee_console(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    f = open(path, "a", encoding="utf-8", errors="replace", buffering=1)
+    sys.stdout = _SafeTee(sys.stdout, f)
+    sys.stderr = _SafeTee(sys.stderr, f)
+
+
+def _interrupted_recent(max_age_h: float = 20) -> str | None:
+    """Run de la ejecución diaria que quedó cortado hace menos de `max_age_h` horas (para retomarlo)."""
+    from .paths import RUNS_DIR
+    from .util import pid_alive
+    now = time.time()
+    for d in sorted((p for p in RUNS_DIR.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)[:10]:
+        st = read_json(d / "run.json", None)
+        if not st or now - (st.get("started") or 0) > max_age_h * 3600:
+            continue
+        if st.get("options", {}).get("mode") == "metrics":
+            continue
+        if st.get("status") == "running" and not pid_alive(st.get("pid", 0), st.get("pid_since") or st.get("started")):
+            return d.name
+    return None
 
 
 SHUTDOWN_DELAY_S = 120
