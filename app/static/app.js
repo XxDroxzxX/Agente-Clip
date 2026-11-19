@@ -80,6 +80,7 @@ function showView(name) {
   if (name === "history") loadHistory();
   if (name === "learning") loadLearning();
   if (name === "settings") loadSettings();
+  if (name === "calendar") loadCalendar();
   window.scrollTo({ top: 0 });
   history.replaceState(null, "", name === "live" ? location.pathname : `#${name}`);
 }
@@ -97,6 +98,8 @@ async function refreshState() {
     app.readiness = s.readiness;
     const prevActive = app.active && app.active.run_id;
     app.active = s.active;
+    app.creator = s.creator;
+    renderCreator();
     $("#brandNiche").textContent = s.niche;
     $("#navLiveDot").classList.toggle("on", !!s.active);
     $("#legacyBanner").classList.toggle("hidden", !s.legacy_files);
@@ -511,17 +514,53 @@ function renderActions() {
   const canResume = !busy && live.runId && ["failed", "cancelled", "interrupted"].includes(live.status)
     && live.options?.mode !== "metrics";
   $("#btnResume").classList.toggle("hidden", !canResume);
+  $("#creatorCard").classList.toggle("hidden", busy);
+  $("#btnLike").classList.toggle("hidden", !(canPublish && live.script));
   const btnPub = $("#btnPublish");
   btnPub.classList.toggle("hidden", !canPublish);
   btnPub.lastChild.textContent = published ? "Publicar pendientes" : "Publicar";
 }
 
+// «¿Qué video quieres crear?»: resumen de lo elegido; cada botón lleva a su sección de Configuración
+function renderCreator() {
+  const c = app.creator;
+  if (!c) return;
+  const chip = (icon, title, value, anchor) => `<button type="button" class="cchip" data-goto="${anchor}" title="Cambiar en Configuración">
+    ${icon}<span><small>${esc(title)}</small>${esc(value)}</span></button>`;
+  $("#creatorChips").innerHTML = [
+    chip(c.style_img ? `<img src="/static/styles/${encodeURIComponent(c.style_img)}" alt="">` : '<span class="ci">🎨</span>', "Estilo", c.style, "s-visual"),
+    chip('<span class="ci">🎙</span>', "Voz", c.voice, "s-video"),
+    chip('<span class="ci">🎬</span>', "Formato", c.format, "s-video"),
+    chip('<span class="ci">🖼</span>', "Material", c.provider, "s-visual"),
+    chip('<span class="ci">🧭</span>', "Nicho", c.niche.length > 34 ? c.niche.slice(0, 34) + "…" : c.niche, "s-content"),
+  ].join("");
+  $$("#creatorChips [data-goto]").forEach((b) => (b.onclick = () => goToSetting(b.dataset.goto)));
+}
+function goToSetting(anchor) {
+  showView("settings");
+  setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" }), 700);
+}
+$("#btnCreate").onclick = () => $("#btnStart").click();
+async function likeRun(runId) {
+  try {
+    const { id } = await api("/api/runs", { method: "POST", body: { publish: $("#optPublish").checked, like: runId } });
+    toast("Run iniciado: otro como este, con un tema nuevo", "ok");
+    showView("live");
+    app.active = { run_id: id };
+    await attach(id, true);
+    refreshState();
+  } catch (e) { toast(e.message, "err"); }
+}
+$("#btnLike").onclick = () => likeRun(live.runId);
+
 $("#btnStart").onclick = async () => {
   const btn = $("#btnStart");
   btn.disabled = true;
   try {
-    const { id } = await api("/api/runs", { method: "POST", body: { publish: $("#optPublish").checked } });
-    toast("Run iniciado", "ok");
+    const idea = $("#ideaInput").value.trim();
+    const { id } = await api("/api/runs", { method: "POST", body: { publish: $("#optPublish").checked, idea } });
+    $("#ideaInput").value = "";
+    toast(idea ? "Run iniciado con tu idea" : "Run iniciado", "ok");
     app.active = { run_id: id };
     await attach(id, true);
     refreshState();
@@ -593,6 +632,7 @@ async function loadHistory() {
           <div class="run-actions">
             <button class="btn sm" data-act="open">Abrir</button>
             ${Object.values(r.items).some((i) => i.video) && !app.active ? `<button class="btn sm secondary" data-act="publish">Publicar</button>` : ""}
+            ${Object.keys(r.items).length && !app.active && r.options.mode !== "metrics" ? `<button class="btn sm ghost" data-act="like" title="Misma fórmula y ganchos, tema nuevo">Otro como este</button>` : ""}
             <button class="btn sm ghost" data-act="delete" style="margin-left:auto">Borrar</button>
           </div>
         </div></div>`;
@@ -603,6 +643,7 @@ async function loadHistory() {
         const act = e.target.closest("[data-act]")?.dataset.act;
         if (act === "delete") { e.stopPropagation(); deleteRun(id); return; }
         if (act === "publish") { e.stopPropagation(); publishRun(id); return; }
+        if (act === "like") { e.stopPropagation(); likeRun(id); return; }
         showView("live");
         attach(id, true);
       };
@@ -610,6 +651,84 @@ async function loadHistory() {
   } catch (e) { grid.innerHTML = `<div class="card">${esc(e.message)}</div>`; }
 }
 $("#btnRefreshHistory").onclick = loadHistory;
+
+/* ════════════════════════════════════════════════════════════
+   Calendario de publicaciones
+   ════════════════════════════════════════════════════════════ */
+const cal = { y: new Date().getFullYear(), m: new Date().getMonth() + 1, day: null, data: null };
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);  // «noviembre de 2026» → «Noviembre de 2026»
+const PLATFORM_NAME = { youtube: "YouTube", tiktok: "TikTok", facebook: "Facebook", instagram: "Instagram" };
+
+async function loadCalendar() {
+  try {
+    const d = await api(`/api/calendar?year=${cal.y}&month=${cal.m}`);
+    cal.data = d;
+    const now = new Date();
+    const isThisMonth = now.getFullYear() === cal.y && now.getMonth() + 1 === cal.m;
+    if (cal.day == null || cal.day > d.days_in_month) cal.day = isThisMonth ? now.getDate() : null;
+    $("#calMonth").textContent = cap(new Date(cal.y, cal.m - 1, 1).toLocaleDateString("es", { month: "long", year: "numeric" }));
+    const sch = d.schedule || {};
+    $("#calSchedule").textContent = sch.enabled
+      ? `Ejecución diaria activa · próxima: ${sch.next_run || "—"}${d.publish_time ? ` · publica a las ${d.publish_time}` : ""}`
+      : "Ejecución diaria desactivada (actívala en Configuración → Ejecución diaria).";
+    const heads = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((h) => `<div class="cal-head">${h}</div>`).join("");
+    const blanks = Array.from({ length: d.first_weekday }, () => '<div class="cal-cell empty"></div>').join("");
+    const cells = Array.from({ length: d.days_in_month }, (_, i) => {
+      const n = i + 1;
+      const pubs = d.days[n] || [];
+      const plats = [...new Set(pubs.map((p) => p.platform))];
+      const thumb = pubs.find((p) => p.thumb);
+      const today = isThisMonth && n === now.getDate();
+      return `<div class="cal-cell ${today ? "today" : ""} ${cal.day === n ? "sel" : ""}" data-day="${n}">
+        <span class="n">${n}</span>
+        ${thumb ? `<img src="${media(thumb.run_id, thumb.thumb)}" alt="" loading="lazy">` : ""}
+        <div class="dots">${plats.map((p) => `<span class="cal-dot ${p}" title="${PLATFORM_NAME[p] || p}"></span>`).join("")}</div>
+        ${pubs.length ? `<span class="cnt">${pubs.length} ${pubs.length > 1 ? "publicaciones" : "publicación"}</span>` : ""}</div>`;
+    }).join("");
+    $("#calGrid").innerHTML = heads + blanks + cells;
+    $$("#calGrid [data-day]").forEach((c) => (c.onclick = () => { cal.day = Number(c.dataset.day); loadCalendarDay(); $$("#calGrid .cal-cell").forEach((x) => x.classList.toggle("sel", x === c)); }));
+    loadCalendarDay();
+    loadCalendarAccounts();
+  } catch (e) { toast(e.message, "err"); }
+}
+function loadCalendarDay() {
+  const d = cal.data;
+  if (!d) return;
+  if (!cal.day) { $("#calDay").innerHTML = '<p class="muted">Elige un día para ver lo que se publicó.</p>'; return; }
+  const date = new Date(cal.y, cal.m - 1, cal.day).toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" });
+  const pubs = d.days[cal.day] || [];
+  $("#calDay").innerHTML = `<h3>${esc(cap(date))}</h3>` + (pubs.length ? pubs.map((p) => `
+    <div class="cal-item">${p.thumb ? `<img src="${media(p.run_id, p.thumb)}" alt="" loading="lazy">` : ""}
+      <div><div class="t">${esc(p.title)}</div>
+      <div class="m"><span class="platform ${p.platform}">${PLATFORM_NAME[p.platform] || p.platform}</span>
+        <span>${p.format === "long" ? "Video largo" : "Short"} · ${p.time}</span>
+        ${p.views != null ? `<span>${fmtNum(p.views)} vistas</span>` : ""}
+        ${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">Abrir</a>` : ""}
+        ${p.run_id ? `<a href="#" data-run="${esc(p.run_id)}">Ver run</a>` : ""}</div></div></div>`).join("")
+    : '<p class="muted">No hay publicaciones este día.</p>');
+  $$("#calDay [data-run]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); showView("live"); attach(a.dataset.run, true); }));
+}
+// estado de cada cuenta, como en JayMaker: avisa cuando una sesión venció y hay que volver a conectarla
+async function loadCalendarAccounts() {
+  const box = $("#calAccounts");
+  try {
+    const [c, s] = await Promise.all([api("/api/connections"), api("/api/settings")]);
+    const p = s.settings.publish;
+    const acc = [];
+    if (p.youtube) acc.push(["youtube", p.youtube_method === "api" ? c.youtube.connected && !c.youtube.error : c.browser.youtube.connected]);
+    if (p.tiktok) acc.push(["tiktok", p.tiktok_method === "api" ? c.tiktok.connected : c.browser.tiktok.connected]);
+    if (p.facebook) acc.push(["facebook", c.facebook.connected && !c.facebook.error]);
+    if (p.instagram) acc.push(["instagram", c.instagram.connected || c.browser.instagram.connected]);
+    box.innerHTML = `<b style="margin-right:6px">Cuentas</b>` + (acc.length ? acc.map(([k, ok]) =>
+      `<span class="cal-acc ${ok ? "ok" : "bad"}"><span class="cal-dot ${k}"></span>${PLATFORM_NAME[k]}${ok ? " · conectada" : " · hay que reconectar"}</span>`).join("")
+      : '<span class="muted">No hay redes activas para publicar.</span>')
+      + `<a href="#" id="calManage" style="margin-left:auto">Administrar cuentas</a>`;
+    $("#calManage").onclick = (e) => { e.preventDefault(); goToSetting("s-connections"); };
+  } catch (e) { box.innerHTML = `<span class="muted">No se pudo revisar las cuentas (${esc(e.message)}).</span>`; }
+}
+$("#calPrev").onclick = () => { cal.m -= 1; if (cal.m < 1) { cal.m = 12; cal.y -= 1; } cal.day = null; loadCalendar(); };
+$("#calNext").onclick = () => { cal.m += 1; if (cal.m > 12) { cal.m = 1; cal.y += 1; } cal.day = null; loadCalendar(); };
+$("#calToday").onclick = () => { const n = new Date(); cal.y = n.getFullYear(); cal.m = n.getMonth() + 1; cal.day = n.getDate(); loadCalendar(); };
 
 async function deleteRun(id) {
   if (!confirm(`¿Borrar el run ${id} y todos sus archivos (videos incluidos)? No se puede deshacer. Lo ya publicado no se ve afectado.`)) return;
@@ -1476,6 +1595,6 @@ window.addEventListener("beforeunload", (e) => {
    ════════════════════════════════════════════════════════════ */
 refreshState().then(() => {
   const h = location.hash.slice(1);
-  if (["history", "learning", "settings"].includes(h)) showView(h);
+  if (["history", "calendar", "learning", "settings"].includes(h)) showView(h);
 });
 setInterval(refreshState, 3000);

@@ -21,6 +21,7 @@
     <nav class="nav">
       <button class="nav-item active" data-view="live"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"/></svg>En vivo<span class="nav-dot" id="navLiveDot"></span></button>
       <button class="nav-item" data-view="history"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v5"/></svg>Historial</button>
+      <button class="nav-item" data-view="calendar"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Calendario</button>
       <button class="nav-item" data-view="learning"><svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>Aprendizaje</button>
       <button class="nav-item" data-view="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Configuración<span class="nav-badge hidden" id="navCfgBadge">!</span></button>
     </nav>
@@ -50,12 +51,25 @@
           </label>
           <button class="btn danger hidden" id="btnCancel"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Cancelar</button>
           <button class="btn secondary hidden" id="btnResume" title="Retoma desde el paso que falló, reutilizando lo que ya estaba listo"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/></svg>Reintentar</button>
+          <button class="btn ghost hidden" id="btnLike" title="Un run nuevo con la misma fórmula (tipo de historia, estructura y ganchos) y un tema nuevo"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>Hacer otro como este</button>
           <button class="btn secondary hidden" id="btnPublish"><svg viewBox="0 0 24 24"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>Publicar</button>
           <button class="btn primary" id="btnStart"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>Iniciar run</button>
         </div>
       </header>
 
       <div class="banner warn hidden" id="readinessBanner"></div>
+
+      <div class="card creator-card hidden" id="creatorCard">
+        <h2 class="creator-title">¿Qué video quieres crear?</h2>
+        <p class="muted creator-sub">Escribe una idea o pega un guion. Si lo dejas vacío, el agente elige el tema con las tendencias de tu nicho.</p>
+        <div class="creator-box">
+          <textarea id="ideaInput" rows="3" maxlength="500" placeholder="Ej.: la historia real del faro que se apagaba solo cada noche de 1987…"></textarea>
+          <div class="creator-bar">
+            <div class="creator-chips" id="creatorChips"></div>
+            <button class="btn primary" id="btnCreate"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>Crear video</button>
+          </div>
+        </div>
+      </div>
 
       <div class="live-grid">
         <div class="card steps-card">
@@ -115,6 +129,25 @@
         <div class="topbar-actions"><button class="btn ghost" id="btnRefreshHistory">Actualizar</button></div>
       </header>
       <div class="history-grid" id="historyGrid"></div>
+    </section>
+
+    <!-- ═══════════ CALENDARIO ═══════════ -->
+    <section class="view" id="view-calendar">
+      <header class="topbar">
+        <div class="topbar-title"><div class="eyebrow">Calendario</div><h1>Publicaciones</h1>
+          <div class="meta-row"><span class="meta" id="calSchedule"></span></div></div>
+        <div class="topbar-actions">
+          <button class="btn ghost" id="calToday">Hoy</button>
+          <button class="btn ghost" id="calPrev" title="Mes anterior">‹</button>
+          <span class="cal-month" id="calMonth"></span>
+          <button class="btn ghost" id="calNext" title="Mes siguiente">›</button>
+        </div>
+      </header>
+      <div class="card cal-accounts" id="calAccounts"></div>
+      <div class="cal-layout">
+        <div class="card"><div class="cal-grid" id="calGrid"></div></div>
+        <div class="card cal-day" id="calDay"></div>
+      </div>
     </section>
 
     <!-- ═══════════ APRENDIZAJE ═══════════ -->

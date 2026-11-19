@@ -237,7 +237,8 @@ def state():
     active = _active()
     legacy = (ROOT / "config.yaml").is_file() or (ROOT / "client_secret.json").is_file()
     return {"active": active, "steps": [{"id": i, "label": l} for i, l in STEPS], "readiness": _readiness(cfg, sec),
-            "auto_publish": cfg["publish"]["auto_publish"], "niche": cfg["content"]["niche"], "legacy_files": legacy}
+            "auto_publish": cfg["publish"]["auto_publish"], "niche": cfg["content"]["niche"], "legacy_files": legacy,
+            "creator": _creator(cfg)}
 
 
 # ── runs ──────────────────────────────────────────────
@@ -256,8 +257,68 @@ def list_runs(limit: int = 50):
 def start_run(body: dict = Body(default={})):
     run_id = new_run_id()
     flag = "--publish" if body.get("publish") else "--no-publish"
-    _spawn(["--run-id", run_id, flag], run_id)
+    args = ["--run-id", run_id, flag]
+    idea = str(body.get("idea") or "").strip()
+    if idea:  # «¿Qué video quieres crear?»: el guion se basa en esta idea
+        args += ["--idea", idea[:500]]
+    like = str(body.get("like") or "").strip()
+    if like:  # «Hacer otro como este»
+        if not (_run_dir(like) / "script.json").is_file():
+            raise HTTPException(400, "Ese run no tiene guion para usar de referencia.")
+        args += ["--like", like]
+    _spawn(args, run_id)
     return {"id": run_id}
+
+
+def _creator(cfg: dict) -> dict:
+    """Resumen de lo que se va a crear (para los botones de la caja «¿Qué video quieres crear?»)."""
+    from agente import catalog, style_previews
+    v, vc = cfg["video"], cfg["voice"]
+    ai = v["visual_provider"] in ("comfyui", "fal", "veo")
+    style = dict(catalog.VISUAL_STYLES).get(v.get("ai_style", ""), "Personalizado") if ai else "Clips de stock"
+    voice = (f"{vc.get('gemini_voice', 'Puck')} (Gemini)" if vc.get("engine") == "gemini"
+             else catalog.voice_label(vc.get("name", "")))
+    n = int(v["shorts_count"])
+    fmt = " + ".join(x for x in ((f"1 largo de {v['long_minutes']} min" if v["long_enabled"] else ""),
+                                 (f"{n} Short{'s' if n != 1 else ''}" if n else "")) if x)
+    return {"style": style, "style_img": style_previews.available().get(v.get("ai_style", "")) if ai else None,
+            "voice": voice, "format": fmt or "—", "niche": cfg["content"]["niche"],
+            "provider": {"pexels": "Stock", "comfyui": "IA local + stock", "fal": "IA fal.ai + stock",
+                         "veo": "Veo + stock"}.get(v["visual_provider"], v["visual_provider"])}
+
+
+@app.get("/api/calendar")
+def calendar(year: int, month: int):
+    """Publicaciones de un mes, por día, con su red, título y enlace; y la próxima ejecución diaria."""
+    import calendar as cal
+    from datetime import datetime
+    if not (2000 <= year <= 2100 and 1 <= month <= 12):
+        raise HTTPException(400, "Mes inválido.")
+    start = datetime(year, month, 1).timestamp()
+    end = datetime(year + (month == 12), month % 12 + 1, 1).timestamp()
+    snaps = learning.load_snapshots()
+    views = {}
+    for s in snaps:
+        k = (s["platform"], s["platform_id"])
+        if k not in views or s["ts"] > views[k][0]:
+            views[k] = (s["ts"], s.get("views"))
+    days: dict[int, list] = {}
+    for h in learning.load_history():
+        t = h.get("published_at") or 0
+        if not (start <= t < end):
+            continue
+        has_thumb = (RUNS_DIR / h.get("run_id", "") / h["item"] / "thumb.jpg").is_file()
+        thumb = f"{h['item']}/thumb.jpg" if has_thumb else None
+        days.setdefault(datetime.fromtimestamp(t).day, []).append({
+            "time": datetime.fromtimestamp(t).strftime("%H:%M"), "platform": h["platform"],
+            "format": learning.fmt(h), "title": h.get("title", ""), "url": h.get("url", ""),
+            "run_id": h.get("run_id"), "thumb": thumb,
+            "views": (views.get((h["platform"], h["platform_id"])) or (0, None))[1]})
+    for lst in days.values():
+        lst.sort(key=lambda x: x["time"])
+    return {"year": year, "month": month, "days_in_month": cal.monthrange(year, month)[1],
+            "first_weekday": cal.monthrange(year, month)[0], "days": days, "schedule": get_schedule(),
+            "publish_time": S.load()["publish"].get("publish_time", "")}
 
 
 @app.post("/api/metrics")
@@ -930,16 +991,18 @@ def niche_apply(body: dict = Body(...)):
 
 @app.get("/api/schedule")
 def get_schedule():
-    r = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME, "/FO", "LIST"], capture_output=True, text=True,
+    # CSV: «"\Tarea","próxima ejecución","estado"», igual en cualquier idioma de Windows (la lista traía los
+    # nombres de campo traducidos y mal decodificados, y la próxima ejecución salía vacía)
+    r = subprocess.run(["schtasks", "/Query", "/TN", TASK_NAME, "/FO", "CSV", "/NH"], capture_output=True,
                        creationflags=0x08000000)
     if r.returncode != 0:
         return {"enabled": False}
-    info = {}
-    for line in r.stdout.splitlines():
-        if ":" in line:
-            k, v = line.split(":", 1)
-            info[k.strip()] = v.strip()
-    nxt = next((v for k, v in info.items() if "Next Run" in k or "Próxima" in k), "")
+    import csv
+    import io
+    text = r.stdout.decode("utf-8", errors="replace")
+    row = next(csv.reader(io.StringIO(text.strip())), [])
+    # Windows separa «p. m.» con espacios finos que llegan como caracteres raros: se dejan espacios normales
+    nxt = re.sub(r"\s+", " ", re.sub(r"[^\w/:.,\- ]", " ", row[1])).strip() if len(row) > 1 else ""
     return {"enabled": True, "next_run": nxt}
 
 

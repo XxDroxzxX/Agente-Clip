@@ -89,9 +89,23 @@ Reglas:
 - No inventes datos falsos; si das cifras, que sean conocidas y verificables."""
 
 
-def build_prompt(cfg: dict, research: dict, hook_style: str | dict) -> str:
+def build_prompt(cfg: dict, research: dict, hook_style: str | dict, idea: str = "",
+                 reference: dict | None = None) -> str:
     c, v = cfg["content"], cfg["video"]
     lines = [f"Nicho: {c['niche']}", f"Idioma de la narración: {c['language']}", f"Audiencia: {c['audience']}", ""]
+    if idea.strip():
+        lines += ["TEMA OBLIGATORIO (idea del creador): «" + idea.strip() + "».",
+                  "Todo el paquete (video largo y Shorts) trata de esta idea, escrita en el idioma de la narración. "
+                  "Si es un guion o un texto largo, respeta su contenido y adáptalo al formato. Las tendencias de abajo "
+                  "solo sirven como referencia de lo que funciona (ganchos, títulos, duración), no para cambiar el tema.", ""]
+    if reference:
+        lines += ["VIDEO DE REFERENCIA (al creador le gustó; haz OTRO con la misma fórmula):",
+                  f"- Tema: {reference['topic']}", f"- Enfoque: {reference['angle']}",
+                  "- Títulos: " + " | ".join(reference["titles"]),
+                  f"- Estructura: video largo de {reference['long_scenes']} escenas; Shorts de "
+                  + ", ".join(str(n) for n in reference["short_scenes"]) + " escenas.",
+                  "Mantén el mismo tipo de historia, tono, ritmo y estructura (número de escenas parecido) y un estilo de "
+                  "título parecido, pero con un tema NUEVO: no repitas el mismo caso ni los mismos datos.", ""]
     vids = research.get("videos", [])[:10]
     if vids:
         lines.append("Videos en tendencia del nicho (últimos días), ordenados por rendimiento:")
@@ -299,9 +313,10 @@ def chapters(plan: "VideoPlan", durations: list[float]) -> str:
     return "\n".join(f"{int(s) // 60}:{int(s) % 60:02d} {title}" for s, title in marks)
 
 
-def generate(run: Run, cfg: dict, research: dict, hook_style: str | dict) -> ScriptPackage:
+def generate(run: Run, cfg: dict, research: dict, hook_style: str | dict, idea: str = "",
+             reference: dict | None = None) -> ScriptPackage:
     sid = "script"
-    prompt = build_prompt(cfg, research, hook_style)
+    prompt = build_prompt(cfg, research, hook_style, idea=idea, reference=reference)
     provider = cfg["llm"]["provider"]
     label, fn = PROVIDERS.get(provider, PROVIDERS["claude"])
     run.step_progress(sid, 0.15, f"Escribiendo con {label}…", force=True)

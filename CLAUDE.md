@@ -239,6 +239,13 @@ Objetivo del usuario: video de calidad profesional tipo cine o anime generado **
 - «▶ Escuchar» en las voces (`voicePick`, `/api/voice-preview`, `tts.preview`): frase de muestra en el idioma del
   video, cacheada en `data/cache/voice_previews/` (Edge ~14 s la primera vez; Gemini gasta cuota solo la primera vez).
 
+- Inicio = «¿Qué video quieres crear?» (`#creatorCard`): idea propia (`--idea`, `options.idea`, «TEMA OBLIGATORIO» en
+  el guion; vacía = tendencias) y botones con lo elegido (`server._creator`: estilo con su imagen, voz, formato,
+  material, nicho) que llevan a su sección de Configuración.
+- «Hacer otro como este» (`--like RUN_ID`, `pipeline._reference`): misma fórmula, estructura y ganchos, tema nuevo.
+- Calendario (`/api/calendar`, vista «Calendario»): publicaciones por día desde `history.json`, vistas, estado de cada
+  cuenta y próxima ejecución diaria. `get_schedule` lee `schtasks /FO CSV` (la lista sale traducida y mal decodificada).
+
 ## Convenciones
 
 - Mensajes al usuario y textos de la interfaz en español, claros y sin jerga; errores siempre traducidos a pasos concretos.

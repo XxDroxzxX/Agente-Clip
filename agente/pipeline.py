@@ -79,14 +79,23 @@ def step_research(run: Run, cfg: dict) -> dict:
 def step_script(run: Run, cfg: dict, data: dict) -> scriptgen.ScriptPackage:
     keys = (["long"] if cfg["video"]["long_enabled"] else []) + \
            [f"short_{i}" for i in range(1, int(cfg["video"]["shorts_count"]) + 1)]
+    opts = run.state.get("options", {})
+    idea = (opts.get("idea") or "").strip()
+    ref = _reference(opts.get("like")) if opts.get("like") else None
+    if idea:
+        run.info(f"Idea propia: «{idea[:160]}» (el guion se basa en ella; las tendencias solo dan contexto).", "script")
+    if ref:
+        run.info(f"Haciendo otro como «{ref['titles'][0]}»: misma fórmula y ganchos, tema nuevo.", "script")
     picks = learning.choose_hook_styles(keys or ["long"], cfg["metrics"]["exploration"])
+    if ref and ref.get("hooks"):  # «otro como este»: los mismos ganchos que ese run
+        picks = {k: (ref["hooks"].get(k, s), "mismo gancho que el video de referencia") for k, (s, _) in picks.items()}
     hooks = {k: s for k, (s, _) in picks.items()}
     hook = next(iter(hooks.values()))
     run.step_start("script", "Ganchos: " + ", ".join(dict.fromkeys(hooks.values())))
     run.info("Ganchos de hoy (uno por video, para comparar cuál rinde mejor): "
              + "; ".join(f"{k} «{s}» ({why})" for k, (s, why) in picks.items()) + ".", "script")
     try:
-        pkg = scriptgen.generate(run, cfg, data, hooks)
+        pkg = scriptgen.generate(run, cfg, data, hooks, idea=idea, reference=ref)
     except Exception as e:
         run.error(str(e), "script")
         run.step_end("script", "failed", str(e))
@@ -96,6 +105,21 @@ def step_script(run: Run, cfg: dict, data: dict) -> scriptgen.ScriptPackage:
     run.artifact("script", data=pkg.model_dump(), hook_style=hook)
     run.step_end("script", "done", pkg.topic)
     return pkg
+
+
+def _reference(run_id: str) -> dict | None:
+    """Resumen de un run anterior para «hacer otro como este»: tema, enfoque, títulos, escenas y ganchos."""
+    from .paths import RUNS_DIR
+    d = RUNS_DIR / str(run_id)
+    try:
+        pkg = scriptgen.ScriptPackage.model_validate_json((d / "script.json").read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    state = read_json(d / "run.json", {}) or {}
+    return {"topic": pkg.topic, "angle": pkg.angle,
+            "titles": [pkg.long_video.title] + [s.title for s in pkg.shorts],
+            "long_scenes": len(pkg.long_video.scenes), "short_scenes": [len(s.scenes) for s in pkg.shorts],
+            "hooks": state.get("hook_styles") or {}}
 
 
 def step_voice(run: Run, cfg: dict, items) -> dict:
@@ -605,9 +629,14 @@ def step_metrics(run: Run, cfg: dict) -> None:
 
 # ── modos ──────────────────────────────────────────────
 
-def full_run(run_id: str, publish: bool) -> int:
+def full_run(run_id: str, publish: bool, idea: str = "", like: str = "") -> int:
     cfg = S.load()
-    run = Run(run_id, options={"publish": publish})
+    opts = {"publish": publish}
+    if idea.strip():
+        opts["idea"] = idea.strip()[:500]  # idea propia: el guion se basa en ella (Inicio → «¿Qué video quieres crear?»)
+    if like:
+        opts["like"] = like  # «hacer otro como este»: run de referencia
+    run = Run(run_id, options=opts)
     run.info(f"Run {run_id} iniciado — nicho «{cfg['content']['niche']}»")
     try:
         from . import cleanup
@@ -788,6 +817,8 @@ def main(argv=None) -> int:
     g.add_argument("--metrics-only", action="store_true")
     g.add_argument("--resume", metavar="RUN_ID", help="retoma un run fallido desde el paso que falló")
     ap.add_argument("--scheduled", action="store_true", help="run de la ejecución diaria (puede apagar el PC al final)")
+    ap.add_argument("--idea", default="", help="tema propio para el guion (en vez de solo las tendencias)")
+    ap.add_argument("--like", default="", metavar="RUN_ID", help="hacer otro run como ese (misma fórmula, tema nuevo)")
     a = ap.parse_args(argv)
 
     run_id = a.publish_only or a.resume or a.run_id or new_run_id()
@@ -802,7 +833,7 @@ def main(argv=None) -> int:
         if a.resume:
             return _notify(run_id, resume(run_id))
         publish = True if a.publish else False if a.no_publish else S.load()["publish"]["auto_publish"]
-        return _notify(run_id, full_run(run_id, publish))
+        return _notify(run_id, full_run(run_id, publish, idea=a.idea, like=a.like))
     finally:
         _release_lock()
         keep_awake(False)
