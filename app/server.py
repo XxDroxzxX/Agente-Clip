@@ -61,12 +61,25 @@ async def guard(request: Request, call_next):
     resp = await call_next(request)
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "no-referrer"
+    if path == "/" or path.endswith((".css", ".js", ".html")):
+        # el navegador debe preguntar siempre si cambió: antes seguía usando un styles.css viejo tras actualizar
+        resp.headers["Cache-Control"] = "no-cache"
     return resp
+
+
+def _ver(name: str) -> str:
+    try:
+        return str(int((STATIC / name).stat().st_mtime))
+    except OSError:
+        return "0"
 
 
 @app.get("/", response_class=HTMLResponse)
 def index():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
+    # versión en la dirección de cada archivo: si cambia, el navegador lo descarga de nuevo sí o sí
+    for name in ("styles.css", "app.js"):
+        html = html.replace(f'/static/{name}"', f'/static/{name}?v={_ver(name)}"')
     return html.replace("__TOKEN__", TOKEN)
 
 
