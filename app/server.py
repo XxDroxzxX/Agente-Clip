@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -391,6 +392,23 @@ def media(run_id: str, rel: str):
     return FileResponse(p)
 
 
+@app.get("/api/voice-preview")
+def voice_preview(engine: str, voice: str, lang: str, style: str = ""):
+    """Muestra de audio de una voz (para elegirla escuchándola). Queda en caché: cada voz se sintetiza una vez."""
+    from agente import tts
+    from agente.catalog import LANGUAGES
+    if engine not in ("edge", "gemini") or lang not in LANGUAGES or not re.fullmatch(r"[A-Za-z0-9-]{2,60}", voice):
+        raise HTTPException(400, "Voz no válida.")
+    try:
+        path = tts.preview(engine, voice, lang, style[:300])
+    except Exception as e:
+        msg = str(e)
+        if "cuota" in msg.lower() or "429" in msg:
+            msg = "La cuota gratuita de voz de Gemini de hoy se agotó; prueba mañana o escucha las voces de Edge."
+        raise HTTPException(400, f"No se pudo generar la muestra: {msg[:240]}")
+    return FileResponse(path, media_type="audio/mpeg", headers={"Cache-Control": "max-age=86400"})
+
+
 # ── configuración ─────────────────────────────────────
 
 @app.get("/api/settings")
@@ -402,6 +420,8 @@ def get_settings():
             "motion": dict(zip(("ok", "msg"), motion.status())),
             "gemini_voices": __import__("agente.tts", fromlist=["GEMINI_VOICES"]).GEMINI_VOICES,
             "catalog": __import__("agente.catalog", fromlist=["for_ui"]).for_ui(),
+            # imágenes de muestra de cada estilo visual (app/static/styles), para elegirlo viéndolo
+            "style_previews": __import__("agente.style_previews", fromlist=["available"]).available(),
             "workflows": sorted(p.name for p in (ROOT / "agente" / "workflows").glob("*.json"))}
 
 

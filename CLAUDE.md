@@ -231,6 +231,14 @@ Objetivo del usuario: video de calidad profesional tipo cine o anime generado **
   para leer o anotar (aviso final, apagado, scripts) lo dejaba «running» y luego «Interrumpido» aunque había terminado.
 - Al reanudar, el paso visual reutiliza cada video con `shots.json` completo (`pipeline._item_shots`).
 
+## Elegir viendo y escuchando (2026-11-19, idea tomada de JayMaker)
+
+- Estilo visual en tarjetas con imagen (`styleCards` en app.js): la misma escena en cada estilo, generada una vez con
+  Qwen local (`python -m agente.style_previews`, `--force` para regenerar) y guardada en `app/static/styles/` (viaja con
+  el repo; nombre = `style_previews.slug(etiqueta)`). Al agregar un estilo a `catalog.VISUAL_STYLES`, generar su muestra.
+- «▶ Escuchar» en las voces (`voicePick`, `/api/voice-preview`, `tts.preview`): frase de muestra en el idioma del
+  video, cacheada en `data/cache/voice_previews/` (Edge ~14 s la primera vez; Gemini gasta cuota solo la primera vez).
+
 ## Convenciones
 
 - Mensajes al usuario y textos de la interfaz en español, claros y sin jerga; errores siempre traducidos a pasos concretos.

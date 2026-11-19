@@ -693,6 +693,7 @@ async function loadSettings() {
     cfg.musicFiles = d.music_files;
     cfg.musicDir = d.music_dir;
     cfg.geminiVoices = d.gemini_voices || ["Puck"];
+    cfg.stylePreviews = d.style_previews || {};
     cfg.motion = d.motion || { ok: false, msg: "" };
     cfg.catalog = d.catalog;
     cfg.workflows = d.workflows || [];
@@ -743,6 +744,54 @@ function numSelect(path, label, values, opts = {}) {
 function toggle(path, title, desc) {
   return `<div class="toggle-row"><div class="tr-text"><b>${esc(title)}</b>${desc ? `<span>${desc}</span>` : ""}</div>
     <label class="switch"><input type="checkbox" data-path="${path}" ${get(cfg.draft, path) ? "checked" : ""}><span class="track"></span></label></div>`;
+}
+// Estilo visual con imagen de muestra: la misma escena en cada estilo (app/static/styles), como un catálogo.
+function styleCards(path, label, presets, opts = {}) {
+  const v = get(cfg.draft, path) ?? "";
+  const known = presets.some(([val]) => String(val) === String(v));
+  const custom = customOpen.has(path) || !known;
+  const cards = presets.map(([val, txt]) => {
+    const img = (cfg.stylePreviews || {})[val];
+    const on = !custom && String(val) === String(v);
+    return `<label class="style-card ${on ? "on" : ""}" title="${esc(txt)}">
+      <input type="radio" name="${path}" data-path="${path}" value="${esc(val)}" ${on ? "checked" : ""}>
+      ${img ? `<img src="/static/styles/${encodeURIComponent(img)}" alt="" loading="lazy">` : '<span class="style-ph">🎨</span>'}
+      <span class="style-name">${esc(txt)}</span></label>`;
+  }).join("");
+  const customCard = `<label class="style-card ${custom ? "on" : ""}" title="Escribe tu propio estilo">
+    <input type="radio" name="${path}" data-choice="${path}" value="${CUSTOM}" ${custom ? "checked" : ""}>
+    <span class="style-ph">✎</span><span class="style-name">Personalizado…</span></label>`;
+  const inp = custom ? `<input type="text" data-path="${path}" value="${esc(v)}" placeholder="${esc(opts.placeholder || "Escribe el valor")}" style="margin-top:8px">` : "";
+  return `<div class="field full"><label>${esc(label)}</label><div class="style-grid">${cards}${customCard}</div>${inp}${opts.help ? `<span class="help">${opts.help}</span>` : ""}</div>`;
+}
+// Lista de voces con botón para escucharla antes de elegirla.
+function voicePick(id, path, label, options, engine, help) {
+  return `<div class="field"><label for="${id}">${esc(label)}</label><div class="with-btn">
+    <select id="${id}" data-path="${path}">${options}</select>
+    <button type="button" class="btn secondary" data-listen="${engine}" title="Escuchar una frase de muestra con esta voz">▶ Escuchar</button></div>
+    ${help ? `<span class="help">${help}</span>` : ""}</div>`;
+}
+async function listenVoice(btn) {
+  const d = cfg.draft;
+  const engine = btn.dataset.listen;
+  const voice = engine === "gemini" ? d.voice.gemini_voice : d.voice.name;
+  const q = new URLSearchParams({ engine, voice, lang: d.content.language, style: engine === "gemini" ? (d.voice.gemini_style || "") : "", t: TOKEN });
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = "Generando…";
+  try {
+    const r = await fetch(`/api/voice-preview?${q}`);
+    if (!r.ok) {
+      let msg = "No se pudo generar la muestra.";
+      try { msg = (await r.json()).detail || msg; } catch (_) { /* respuesta sin JSON */ }
+      throw new Error(msg);
+    }
+    if (window._voiceAudio) window._voiceAudio.pause();
+    window._voiceAudio = new Audio(URL.createObjectURL(await r.blob()));
+    btn.textContent = "■ Sonando";
+    window._voiceAudio.onended = () => { btn.textContent = old; };
+    await window._voiceAudio.play();
+  } catch (e) { toast(e.message, "err"); btn.textContent = old; }
+  finally { btn.disabled = false; }
 }
 function radioCards(path, options) {
   const v = get(cfg.draft, path);
@@ -823,9 +872,9 @@ function renderSettings() {
       ${field("video.quality", "Calidad", "select", { options: [["1080p", "1080p (mejor)"], ["720p", "720p (más rápido)"]] })}
       ${field("voice.engine", "Motor de voz", "select", { options: [["edge", "Microsoft Edge (gratis, sincronía exacta)"], ["gemini", "Gemini TTS (gratis con tu clave, más expresiva)"]], help: d.voice.engine === "gemini" ? "Si Gemini falla o se agota la cuota, ese video se narra con la voz de Edge." : "" })}
       ${d.voice.engine === "gemini" ? `
-      ${field("voice.gemini_voice", "Voz de Gemini", "select", { options: cfg.geminiVoices.map((v) => [v, cfg.catalog.gemini_voice_info[v] ? `${v} · ${cfg.catalog.gemini_voice_info[v]}` : v]), help: "Todas hablan el idioma del guion." })}
+      ${voicePick("f-voice-gemini_voice", "voice.gemini_voice", "Voz de Gemini", cfg.geminiVoices.map((v) => `<option value="${esc(v)}" ${v === d.voice.gemini_voice ? "selected" : ""}>${esc(cfg.catalog.gemini_voice_info[v] ? `${v} · ${cfg.catalog.gemini_voice_info[v]}` : v)}</option>`).join(""), "gemini", "Todas hablan el idioma del guion. La muestra usa tu estilo de lectura y gasta un poco de la cuota gratuita de Gemini solo la primera vez (luego queda guardada).")}
       ${choiceField("voice.gemini_style", "Estilo de lectura", cfg.catalog.reading_styles, { placeholder: "Cómo debe sonar, en tus palabras", help: d.content.language === "es" ? "Elige uno o escribe el tuyo con «Personalizado…»." : "Los predefinidos se traducen solos al idioma del video. Si escribes uno propio, escríbelo en ese idioma: un estilo en español hace que la voz meta palabras en español." })}` : ""}
-      <div class="field"><label for="f-voice-name">Voz de Edge${d.voice.engine === "gemini" ? " (respaldo)" : ""}</label><select id="f-voice-name" data-path="voice.name"><option>${esc(d.voice.name)}</option></select><span class="help">Agrupadas por país; solo voces de ${esc((cfg.catalog.languages.find(([c]) => c === d.content.language) || ["", ""])[1].toLowerCase())}.</span></div>
+      ${voicePick("f-voice-name", "voice.name", `Voz de Edge${d.voice.engine === "gemini" ? " (respaldo)" : ""}`, `<option>${esc(d.voice.name)}</option>`, "edge", `Agrupadas por país; solo voces de ${esc((cfg.catalog.languages.find(([c]) => c === d.content.language) || ["", ""])[1].toLowerCase())}. Pulsa «Escuchar» para oír una frase de muestra.`)}
       ${field("voice.rate", "Velocidad (Edge)", "select", { options: [["-10%", "Lenta"], ["+0%", "Normal"], ["+6%", "Ágil"], ["+12%", "Rápida"], ["+20%", "Muy rápida"]] })}
     </div>
     <div style="margin-top:12px">
@@ -866,7 +915,7 @@ function renderSettings() {
       ${numSelect("video.comfy_segment_seconds", "Segundos por segmento IA", [[3, "3 s"], [4, "4 s"], [5, "5 s (recomendado)"], [6, "6 s"]])}
       ${field("video.comfy_chain", "Continuidad", "select", { options: [["scene", "Encadenar dentro de cada escena (corte al cambiar)"], ["all", "Una sola cadena para todo el video"]], help: "Cada toma sigue desde el último cuadro de la anterior. Con una sola cadena el video es más continuo, pero tiende a alejarse de la narración." })}
       ${numSelect("video.comfy_director_min", "Nota mínima del director IA", [[4, "4 de 10 (permisivo)"], [5, "5 de 10"], [6, "6 de 10 (recomendado)"], [7, "7 de 10"], [8, "8 de 10 (exigente)"]], { help: "Las imágenes clave con nota menor se repiten (hasta 3 intentos) y las tomas se regeneran una vez; se queda la mejor." })}
-      ${choiceField("video.ai_style", "Estilo visual", cfg.catalog.visual_styles, { placeholder: "en inglés, p. ej. cinematic, film grain", help: "Se agrega a cada escena generada con IA. «Personalizado…» para escribir el tuyo (en inglés)." })}
+      ${styleCards("video.ai_style", "Estilo visual", cfg.catalog.visual_styles, { placeholder: "en inglés, p. ej. cinematic, film grain", help: "Cada tarjeta muestra la misma escena en ese estilo. Se agrega a cada escena generada con IA. «Personalizado…» para escribir el tuyo (en inglés)." })}
       ${numSelect("video.comfy_steps", "Pasos de muestreo", [[12, "12 (rápido, menos detalle)"], [16, "16"], [20, "20 (recomendado)"], [25, "25"], [30, "30 (más detalle, más lento)"]])}
       ${field("video.comfy_path", "Carpeta de ComfyUI portable", "text", { help: "Si ComfyUI está cerrado, el run lo abre y lo cierra al terminar (libera la memoria)." })}
       ${field("video.comfy_url", "Dirección de ComfyUI", "text", { help: "Otro PC de la red también sirve, p. ej. <code>http://192.168.1.50:8188</code>." })}
@@ -886,7 +935,7 @@ function renderSettings() {
       ${field("video.ai_select", "Qué escenas van con IA", "select", { options: [["smart", "Mixto inteligente: IA solo donde hace falta, stock en lo genérico"], ["hook", "Las primeras tomas (el gancho)"], ["all", "Todas (costoso)"]] })}
       ${numSelect("video.comfy_max_shots", "Máximo de tomas con IA por video", [[0, "Sin tope"], [1, "1"], [2, "2"], [3, "3"], [4, "4"], [6, "6"], [8, "8"]], { help: "Tope de costo: cada toma de Veo dura hasta 8 s." })}
       ${field("video.fal_scope", "Usar IA en", "select", { options: [["shorts", "Solo Shorts (stock para el largo)"], ["all", "Todo (costoso)"]] })}
-      ${choiceField("video.ai_style", "Estilo visual", cfg.catalog.visual_styles, { placeholder: "en inglés, p. ej. cinematic, film grain" })}
+      ${styleCards("video.ai_style", "Estilo visual", cfg.catalog.visual_styles, { placeholder: "en inglés, p. ej. cinematic, film grain" })}
       <div class="field full">${toggle("video.character_ref", "Personaje consistente (Nano Banana)", "Cada escena parte de una imagen con el mismo personaje y Veo la anima.")}${toggle("video.comfy_director", "Director IA", "Revisa cada imagen clave y la repite si no muestra la escena (las imágenes cuestan mucho menos que el video).")}</div>
       <div class="field full"><span class="help">${cfg.secrets.gemini_media_api_key ? "✓ Clave de imagen y video guardada." : '<span class="err-text">Falta la «Gemini API key (imagen y video)» en Credenciales.</span>'} Si Veo falla en una toma, esa toma usa un clip de stock.</span></div>
     </div>` : ""}
@@ -1083,6 +1132,7 @@ function ollamaPresets() {
 }
 
 function bindSettingsInputs() {
+  $$("#settingsBody [data-listen]").forEach((b) => { b.onclick = () => listenVoice(b); });
   $$("#settingsBody [data-choice]").forEach((el) => el.addEventListener("change", () => {
     const path = el.dataset.choice;
     if (el.value === CUSTOM) customOpen.add(path);
@@ -1098,7 +1148,7 @@ function bindSettingsInputs() {
     el.addEventListener(evt, () => {
       let v;
       if (el.type === "checkbox") v = el.checked;
-      else if (el.type === "radio") { if (!el.checked) return; v = el.value; }
+      else if (el.type === "radio") { if (!el.checked) return; v = el.value; customOpen.delete(el.dataset.path); }
       else if (el.dataset.num) v = el.value === "" ? 0 : Number(el.value);
       else v = el.value;
       set(cfg.draft, el.dataset.path, v);

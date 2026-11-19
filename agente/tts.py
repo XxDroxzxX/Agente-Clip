@@ -246,6 +246,35 @@ def synthesize_scene(text: str, voice_cfg: dict, out_dir: Path, idx: int, gap: f
     return SceneAudio(wav=wav, duration=_wav_duration(wav), words=words)
 
 
+PREVIEW_TEXT = {
+    "es": "Hola. Así sonaría la narración de tus videos con esta voz. ¿Te gusta cómo suena?",
+    "en": "Hi there. This is how your videos would sound with this voice. Do you like it?",
+    "pt": "Olá. É assim que a narração dos seus vídeos soaria com esta voz. Você gostou?",
+}
+
+
+def preview(engine: str, voice: str, lang: str, style: str = "") -> Path:
+    """Muestra corta de una voz en el idioma del video, para elegirla escuchándola. Se guarda en caché: cada voz
+    (y, en Gemini, cada estilo de lectura) se sintetiza una sola vez."""
+    import hashlib
+    import tempfile
+    from .paths import CACHE_DIR
+    engine = "gemini" if engine == "gemini" else "edge"
+    key = hashlib.sha1(f"{engine}|{voice}|{lang}|{style if engine == 'gemini' else ''}".encode()).hexdigest()[:16]
+    out = CACHE_DIR / "voice_previews" / f"{key}.mp3"
+    if out.is_file() and out.stat().st_size > 0:
+        return out
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cfg = {"engine": engine, "name": voice, "gemini_voice": voice, "gemini_style": style, "rate": "+0%"}
+    with tempfile.TemporaryDirectory() as d:
+        sc = synthesize_scene(PREVIEW_TEXT.get(lang, PREVIEW_TEXT["en"]), cfg, Path(d), 0, gap=0.0,
+                              engine=engine, lang=lang)
+        tmp = out.with_suffix(".part.mp3")
+        ffmpeg.run(["-i", sc.wav, "-c:a", "libmp3lame", "-b:a", "96k", tmp])
+        tmp.replace(out)
+    return out
+
+
 def concat_wavs(parts: list[Path], out: Path) -> float:
     with wave.open(str(out), "wb") as dst:
         dst.setnchannels(1)

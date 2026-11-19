@@ -299,6 +299,25 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); box-sha
 .radio-card.on { border-color: var(--accent); background: var(--accent-soft); }
 .radio-card b { display: block; font-weight: 620; }
 .radio-card span { font-size: 12.5px; color: var(--muted); }
+
+/* estilo visual: se elige viendo una imagen de muestra (la misma escena en cada estilo) */
+.style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; margin-top: 4px; }
+.style-card { position: relative; aspect-ratio: 9 / 13; border-radius: 11px; overflow: hidden; cursor: pointer;
+  border: 2px solid var(--border-strong); background: var(--surface-2); transition: transform .12s, border-color .12s; }
+.style-card:hover { transform: translateY(-2px); }
+.style-card.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.style-card input { position: absolute; opacity: 0; pointer-events: none; }
+.style-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.style-card .style-ph { position: absolute; inset: 0; display: grid; place-items: center; font-size: 26px; color: var(--muted);
+  background: repeating-linear-gradient(135deg, var(--surface-2) 0 10px, var(--surface) 10px 20px); }
+.style-card .style-name { position: absolute; left: 0; right: 0; bottom: 0; padding: 18px 8px 7px; font-size: 12px; font-weight: 620;
+  color: #fff; line-height: 1.2; background: linear-gradient(transparent, rgba(0,0,0,.82)); }
+.style-card.on .style-name::before { content: "✓ "; color: var(--accent-2); }
+
+/* lista + botón (escuchar una voz) */
+.with-btn { display: flex; gap: 8px; align-items: stretch; }
+.with-btn select { flex: 1; min-width: 0; }
+.with-btn .btn { white-space: nowrap; padding: 0 12px; }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 0; border-top: 1px solid var(--border); }
 .toggle-row:first-child { border-top: 0; }
 .toggle-row .tr-text > b { display: block; font-weight: 600; }
