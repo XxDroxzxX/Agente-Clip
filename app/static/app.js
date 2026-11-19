@@ -165,6 +165,7 @@ async function attach(runId, pinned = false) {
     live.finished = run.finished;
     live.error = run.error;
     live.options = run.options || {};
+    live.uploadState = run.uploads || [];  // estado al día (miniatura o enlace aplicados después)
     if (script) setScript(script, run.hook_style);
     if (research_top && research_top.length) live.research = research_top;
   } catch (e) { /* aún no existe run.json: lo traerá el stream */ }
@@ -491,10 +492,31 @@ function renderUploads() {
     return;
   }
   box.className = "";
-  box.innerHTML = live.uploads.map((u) => `<div class="upload"><span class="platform ${u.platform}">${esc(u.platform)}</span>
-    <div class="u-main"><div>${esc(itemLabel(u.item))}${u.privacy ? ` <span class="muted small">· ${esc(u.privacy)}</span>` : ""}</div>
-    ${u.error ? `<div class="u-err">${esc(u.error)}</div>` : ""}${u.note ? `<div class="u-note">${esc(u.note)}</div>` : ""}</div>
-    ${u.url ? `<a href="${esc(u.url)}" target="_blank" rel="noopener" class="btn sm">Abrir</a>` : ""}</div>`).join("");
+  box.innerHTML = live.uploads.map((u) => {
+    const note = cleanNote(u);
+    return `<div class="upload"><span class="platform ${u.platform}">${esc(u.platform)}</span>
+    <div class="u-main"><div>${esc(itemLabel(u.item))}${u.privacy ? ` <span class="muted small">· ${esc(PRIVACY[u.privacy] || u.privacy)}</span>` : ""}</div>
+    ${u.error ? `<div class="u-err">${esc(u.error)}</div>` : ""}${note ? `<div class="u-note">${esc(note)}</div>` : ""}</div>
+    ${u.url ? `<a href="${esc(u.url)}" target="_blank" rel="noopener" class="btn sm">Abrir</a>` : ""}</div>`;
+  }).join("");
+}
+const PRIVACY = { public: "Público", PUBLIC_TO_EVERYONE: "Público", private: "Privado", SELF_ONLY: "Solo yo",
+  unlisted: "No listado", MUTUAL_FOLLOW_FRIENDS: "Amigos", FOLLOWER_OF_CREATOR: "Seguidores" };
+// quita de la nota los avisos que ya se resolvieron después (miniatura aplicada, Short enlazado al largo)
+function cleanNote(u) {
+  let txt = u.note || "";
+  const rec = (live.uploadState || []).find((r) => r.platform === u.platform && r.item === u.item && r.platform_id === u.platform_id) || u;
+  const drop = (start, end) => {
+    const i = txt.indexOf(start);
+    if (i < 0) return;
+    let j = end ? txt.indexOf(end, i) : -1;
+    if (j >= 0) j += end.length;
+    else { const k = txt.indexOf(").", i); j = k >= 0 ? k + 2 : txt.indexOf(".", i) + 1; }
+    txt = (txt.slice(0, i) + txt.slice(j || txt.length)).trim();
+  };
+  if (rec.related_pending === false) drop("El Short no se enlazó al video largo", "se enlazará.");
+  if (rec.thumb_pending === false) drop("La miniatura no se aplicó", "miniatura pendiente.");
+  return txt;
 }
 
 function renderActions() {
@@ -541,18 +563,114 @@ const ICON = {
 function renderCreator() {
   const c = app.creator;
   if (!c) return;
-  const chip = (icon, title, value, anchor) => `<button type="button" class="cchip" data-goto="${anchor}" title="${esc(title)}: ${esc(value)} (clic para cambiarlo)">
-    ${icon}<span class="v">${esc(value)}</span></button>`;
-  $("#creatorChips").innerHTML = [
-    chip(c.style_img ? `<img src="/static/styles/${encodeURIComponent(c.style_img)}" alt="">` : ICON.palette, "Estilo visual", c.style, "s-visual"),
-    chip(ICON.mic, "Voz", c.voice, "s-video"),
-    chip(ICON.film, "Formato", c.format, "s-video"),
-    chip(ICON.image, "Material", c.provider, "s-visual"),
+  // cada píldora abre un panel aquí mismo para cambiar ese ajuste (antes te llevaba a Configuración)
+  const chip = (icon, title, value, kind) => `<button type="button" class="cchip" data-pop="${kind}" title="${esc(title)}: ${esc(value)} (clic para cambiarlo)">
+    ${icon}<span class="v">${esc(value)}</span><svg class="caret" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>`;
+  const html = [
+    chip(c.style_img ? `<img src="/static/styles/${encodeURIComponent(c.style_img)}" alt="">` : ICON.palette, "Estilo visual", c.style, "style"),
+    chip(ICON.mic, "Voz", c.voice, "voice"),
+    chip(ICON.film, "Formato", c.format, "format"),
+    chip(ICON.image, "Material", c.provider, "material"),
   ].join("");
-  // el nicho va en la frase de arriba (como enlace), no como un botón más que partía la fila en dos
   const niche = (c.niche || "").split(" - ")[0].trim();
   $("#creatorNiche").textContent = niche ? `«${niche}»` : "tu nicho";
-  $$("#creatorCard [data-goto]").forEach((b) => (b.onclick = (e) => { e.preventDefault(); goToSetting(b.dataset.goto); }));
+  $("#creatorNiche").onclick = (e) => { e.preventDefault(); goToSetting("s-content"); };
+  // solo se redibuja si cambió algo (el estado se consulta cada 3 s)
+  if ($("#creatorChips").dataset.sig === html) return;
+  $("#creatorChips").dataset.sig = html;
+  $("#creatorChips").innerHTML = html;
+  $$("#creatorChips [data-pop]").forEach((b) => (b.onclick = () => openPop(b.dataset.pop, b)));
+}
+
+// ── paneles de las píldoras: cambian el ajuste aquí mismo y lo guardan al instante ──
+let popData = null;
+async function patchSettings(change) {
+  const s = structuredClone(popData.settings);
+  change(s);
+  const r = await api("/api/settings", { method: "PUT", body: s });
+  popData.settings = r.settings;
+  (r.fixes || []).forEach((f) => toast(f, "warn"));
+  cfg.loaded = null;  // Configuración se recarga con lo nuevo la próxima vez que se abra
+  await refreshState();
+}
+function closePop() {
+  $("#creatorPop")?.remove();
+  document.removeEventListener("mousedown", popOutside, true);
+  document.removeEventListener("keydown", popEsc, true);
+}
+function popOutside(e) { if (!e.target.closest("#creatorPop") && !e.target.closest("[data-pop]")) closePop(); }
+function popEsc(e) { if (e.key === "Escape") closePop(); }
+async function openPop(kind, chipEl, reopen = false) {
+  const open = $("#creatorPop");
+  closePop();
+  if (open && open.dataset.kind === kind && !reopen) return;  // segundo clic en la misma píldora: cierra
+  try { popData = await api("/api/settings"); } catch (e) { toast(e.message, "err"); return; }
+  const s = popData.settings;
+  const v = s.video;
+  const ai = ["comfyui", "veo", "fal"].includes(v.visual_provider);
+  let body = "";
+  if (kind === "style") {
+    const prev = popData.style_previews || {};
+    body = `<div class="pop-title">Estilo visual</div>
+      ${ai ? "" : '<p class="pop-note">Solo se aplica a lo que se genera con IA; ahora usas clips de stock.</p>'}
+      <div class="pop-styles">${popData.catalog.visual_styles.map(([val, txt]) => `<button type="button" class="pop-style ${val === v.ai_style ? "on" : ""}" data-val="${esc(val)}" title="${esc(txt)}">
+        ${prev[val] ? `<img src="/static/styles/${encodeURIComponent(prev[val])}" alt="">` : ""}<span>${esc(txt.split(" (")[0].split(" / ")[0])}</span></button>`).join("")}</div>`;
+  } else if (kind === "voice") {
+    if (!cfg.voices.length) { try { cfg.voices = await api("/api/voices"); } catch (_) { /* sin lista de Edge */ } }
+    const lang = s.content.language;
+    const gem = s.voice.engine === "gemini";
+    const opts = gem
+      ? (popData.gemini_voices || []).map((n) => `<option value="${esc(n)}" ${n === s.voice.gemini_voice ? "selected" : ""}>${esc(n)}${popData.catalog.gemini_voice_info[n] ? ` · ${esc(popData.catalog.gemini_voice_info[n])}` : ""}</option>`).join("")
+      : cfg.voices.filter((x) => x.locale.split("-")[0] === lang).map((x) => `<option value="${esc(x.name)}" ${x.name === s.voice.name ? "selected" : ""}>${esc(x.label)} · ${esc(x.country)} (${x.gender === "Female" ? "mujer" : "hombre"})</option>`).join("");
+    body = `<div class="pop-title">Voz</div>
+      <label class="pop-lbl">Motor</label>
+      <select data-k="engine"><option value="edge" ${gem ? "" : "selected"}>Microsoft Edge (sincronía exacta)</option><option value="gemini" ${gem ? "selected" : ""}>Gemini TTS (más expresiva)</option></select>
+      <label class="pop-lbl">Voz</label>
+      <div class="with-btn"><select data-k="voice">${opts}</select>
+        <button type="button" class="btn secondary" data-play>${ICON.play}<span>Escuchar</span></button></div>`;
+  } else if (kind === "format") {
+    const sel = (k, list, cur) => `<select data-k="${k}">${list.map(([a, b]) => `<option value="${a}" ${Number(cur) === a ? "selected" : ""}>${b}</option>`).join("")}</select>`;
+    body = `<div class="pop-title">Formato</div>
+      <label class="pop-check"><input type="checkbox" data-k="long" ${v.long_enabled ? "checked" : ""}> Crear video largo (horizontal)</label>
+      <label class="pop-lbl">Duración del video largo</label>${sel("minutes", [[1, "1 minuto"], [2, "2 minutos"], [3, "3 minutos"], [5, "5 minutos"], [8, "8 minutos"], [10, "10 minutos"], [15, "15 minutos"]], v.long_minutes)}
+      <label class="pop-lbl">Shorts (verticales)</label>${sel("shorts", [[0, "Ninguno"], [1, "1"], [2, "2"], [3, "3"], [4, "4"], [5, "5"]], v.shorts_count)}`;
+  } else {
+    const prov = [["pexels", "Clips de stock", "Gratis, de Pixabay y Pexels"], ["comfyui", "IA local + stock", "Gratis en tu GPU, lento"],
+      ["veo", "Veo + stock", "Google, en la nube"], ["fal", "fal.ai + stock", "De pago"]];
+    body = `<div class="pop-title">Material visual</div>
+      <div class="pop-list">${prov.map(([val, t, dsc]) => `<button type="button" class="pop-opt ${v.visual_provider === val ? "on" : ""}" data-val="${val}"><b>${t}</b><span>${dsc}</span></button>`).join("")}</div>`;
+  }
+  const anchor = { style: "s-visual", voice: "s-video", format: "s-video", material: "s-visual" }[kind];
+  const pop = document.createElement("div");
+  pop.id = "creatorPop";
+  pop.className = `pop pop-k-${kind}`;
+  pop.dataset.kind = kind;
+  pop.innerHTML = `${body}<a href="#" class="pop-more" data-more>Más opciones en Configuración</a>`;
+  $("#creatorCard").appendChild(pop);
+  // la píldora actual (la barra pudo redibujarse mientras se cargaban los datos)
+  chipEl = $(`#creatorChips [data-pop="${kind}"]`) || chipEl;
+  const card = $("#creatorCard").getBoundingClientRect();
+  const r = chipEl.getBoundingClientRect();
+  pop.style.top = `${r.bottom - card.top + 8}px`;
+  pop.style.left = `${Math.max(0, Math.min(r.left - card.left, card.width - pop.offsetWidth - 4))}px`;
+  const save = async (change) => { try { await patchSettings(change); } catch (e) { toast(e.message, "err"); } };
+  pop.querySelector("[data-more]").onclick = (e) => { e.preventDefault(); closePop(); goToSetting(anchor); };
+  $$(".pop-style", pop).forEach((b) => (b.onclick = async () => { await save((x) => { x.video.ai_style = b.dataset.val; }); closePop(); }));
+  $$(".pop-opt", pop).forEach((b) => (b.onclick = async () => { await save((x) => { x.video.visual_provider = b.dataset.val; }); closePop(); }));
+  const on = (k, fn) => { const el = pop.querySelector(`[data-k="${k}"]`); if (el) el.onchange = () => fn(el); };
+  on("engine", async (el) => { await save((x) => { x.voice.engine = el.value; }); openPop("voice", $('#creatorChips [data-pop="voice"]'), true); });
+  on("voice", (el) => save((x) => { if (x.voice.engine === "gemini") x.voice.gemini_voice = el.value; else x.voice.name = el.value; }));
+  on("long", (el) => save((x) => { x.video.long_enabled = el.checked; }));
+  on("minutes", (el) => save((x) => { x.video.long_minutes = Number(el.value); }));
+  on("shorts", (el) => save((x) => { x.video.shorts_count = Number(el.value); }));
+  const play = pop.querySelector("[data-play]");
+  if (play) play.onclick = () => {
+    const x = popData.settings;
+    const gem = x.voice.engine === "gemini";
+    previewVoice(play, x.voice.engine, gem ? x.voice.gemini_voice : x.voice.name, x.content.language, gem ? (x.voice.gemini_style || "") : "");
+  };
+  document.addEventListener("mousedown", popOutside, true);
+  document.addEventListener("keydown", popEsc, true);
 }
 function goToSetting(anchor) {
   showView("settings");
@@ -926,8 +1044,11 @@ function voicePick(id, path, label, options, engine, help) {
 async function listenVoice(btn) {
   const d = cfg.draft;
   const engine = btn.dataset.listen;
-  const voice = engine === "gemini" ? d.voice.gemini_voice : d.voice.name;
-  const q = new URLSearchParams({ engine, voice, lang: d.content.language, style: engine === "gemini" ? (d.voice.gemini_style || "") : "", t: TOKEN });
+  return previewVoice(btn, engine, engine === "gemini" ? d.voice.gemini_voice : d.voice.name, d.content.language,
+    engine === "gemini" ? (d.voice.gemini_style || "") : "");
+}
+async function previewVoice(btn, engine, voice, lang, style) {
+  const q = new URLSearchParams({ engine, voice, lang, style, t: TOKEN });
   const label = btn.querySelector("span");
   btn.disabled = true; label.textContent = "Generando…";
   try {
@@ -1585,8 +1706,8 @@ async function loadStorage() {
     box.innerHTML = `<div class="facts" style="margin:0">
         <span>Runs <b>${u.runs}</b></span><span>Archivos de trabajo <b>${u.work_gb} GB</b></span>
         <span>Videos finales <b>${u.videos_gb} GB</b></span><span>Caché de clips <b>${u.cache_gb} GB</b></span></div>
-      <button class="btn sm" id="btnCleanNow" style="margin-top:8px">Liberar espacio ahora</button>
-      <span class="help">Borra los archivos de trabajo de todos los runs terminados y la caché. No toca los videos finales.</span>`;
+      <div class="clean-row"><button class="btn sm" id="btnCleanNow">Liberar espacio ahora</button>
+      <span class="help">Borra los archivos de trabajo de todos los runs terminados y la caché. No toca los videos finales.</span></div>`;
     $("#btnCleanNow").onclick = async () => {
       if (!confirm("¿Borrar los archivos de trabajo de todos los runs terminados y la caché de clips? Los videos finales se conservan, pero «Reintentar» tendrá que regenerar voces y tomas.")) return;
       try {
@@ -1607,9 +1728,9 @@ async function loadSchedule() {
     box.className = "";
     box.innerHTML = `<div class="conn-row">
       <div class="cr-text"><b>${s.enabled ? "Programada" : "Desactivada"}</b><span>${s.enabled && s.next_run ? `Próxima ejecución: ${esc(s.next_run)}` : "El agente solo se ejecuta cuando lo inicias manualmente."}</span></div>
-      <input type="time" id="schedTime" value="09:00" style="width:120px">
-      ${s.enabled ? '<button class="btn sm ghost" id="btnSchedOff">Desactivar</button>' : ""}
-      <button class="btn sm primary" id="btnSchedOn">${s.enabled ? "Cambiar hora" : "Activar"}</button></div>`;
+      <div class="sched-actions"><input type="time" id="schedTime" value="${esc(s.time || "09:00")}" style="width:130px">
+      <button class="btn sm primary" id="btnSchedOn">${s.enabled ? "Cambiar hora" : "Activar"}</button>
+      ${s.enabled ? '<button class="btn sm ghost" id="btnSchedOff">Desactivar</button>' : ""}</div></div>`;
     $("#btnSchedOn").onclick = async () => {
       try { await api("/api/schedule", { method: "PUT", body: { enabled: true, time: $("#schedTime").value } }); toast("Ejecución diaria programada", "ok"); loadSchedule(); }
       catch (e) { toast(e.message, "err"); }

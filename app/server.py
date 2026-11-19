@@ -1013,7 +1013,20 @@ def get_schedule():
     # Windows separa «p. m.» con espacios finos que llegan como caracteres raros: se dejan espacios normales
     nxt = re.sub(r"\s+", " ", re.sub(r"[^\w/:.,\- ]", " ", row[1])).strip() if len(row) > 1 else ""
     nxt = re.sub(r"(\d{1,2}:\d{2}):\d{2}", r"\1", nxt)  # sin segundos: «19/11/2026 9:00 p. m.»
-    return {"enabled": True, "next_run": nxt}
+    return {"enabled": True, "next_run": nxt, "time": _hhmm(nxt)}
+
+
+def _hhmm(text: str) -> str:
+    """«19/11/2026 9:00 p. m.» → «21:00» (la hora real de la tarea, para mostrarla en el selector)."""
+    m = re.search(r"(\d{1,2}):(\d{2})\s*([ap])?\.?\s*m?", text, re.I)
+    if not m:
+        return ""
+    h, mi, ap = int(m.group(1)), m.group(2), (m.group(3) or "").lower()
+    if ap == "p" and h < 12:
+        h += 12
+    elif ap == "a" and h == 12:
+        h = 0
+    return f"{h:02d}:{mi}"
 
 
 @app.put("/api/schedule")

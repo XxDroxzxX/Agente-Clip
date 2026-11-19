@@ -26,7 +26,7 @@ SECRETS: dict[str, tuple[str, str]] = {
     "pixabay_api_key": ("Pixabay API key", "Gratis: crea una cuenta en pixabay.com y copia tu clave desde pixabay.com/api/docs — clips de video por escena"),
     "pexels_api_key": ("Pexels API key", "Opcional, gratis en pexels.com/api (Pexels pausó la emisión de claves nuevas; con Pixabay basta)"),
     "fal_api_key": ("fal.ai API key", "Opcional, de pago — video generado por IA encadenando fotogramas"),
-    "gemini_media_api_key": ("Gemini API key (imagen y video)", "Opcional. La clave de la cuenta de Google que tiene Nano Banana (imágenes) y Veo (video): aistudio.google.com → Get API key. Puede ser distinta de la de texto. Mantiene al mismo personaje en todas las escenas y permite generar video con Veo (Google puede cobrar según tu plan)"),
+    "gemini_media_api_key": ("Gemini API key (imagen y video)", "Opcional, para Nano Banana (imágenes) y Veo (video): aistudio.google.com → Get API key. Puede ser de otra cuenta que la de texto; Google puede cobrar según tu plan"),
     "youtube_api_key": ("YouTube Data API key", "Google Cloud Console → Credenciales → Clave de API"),
     "youtube_client_secret": ("YouTube OAuth client (JSON)", "Contenido de client_secret.json (app de escritorio)"),
     "tiktok_client_key": ("TikTok client key", "developers.tiktok.com → tu app"),
