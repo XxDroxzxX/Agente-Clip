@@ -302,20 +302,29 @@ def calendar(year: int, month: int):
         k = (s["platform"], s["platform_id"])
         if k not in views or s["ts"] > views[k][0]:
             views[k] = (s["ts"], s.get("views"))
-    days: dict[int, list] = {}
+    # agrupado por video (no por publicación): un video sale en 4 redes y antes ocupaba 4 entradas iguales
+    order = {"youtube": 0, "tiktok": 1, "facebook": 2, "instagram": 3}
+    videos: dict[tuple, dict] = {}
     for h in learning.load_history():
         t = h.get("published_at") or 0
         if not (start <= t < end):
             continue
-        has_thumb = (RUNS_DIR / h.get("run_id", "") / h["item"] / "thumb.jpg").is_file()
-        thumb = f"{h['item']}/thumb.jpg" if has_thumb else None
-        days.setdefault(datetime.fromtimestamp(t).day, []).append({
-            "time": datetime.fromtimestamp(t).strftime("%H:%M"), "platform": h["platform"],
-            "format": learning.fmt(h), "title": h.get("title", ""), "url": h.get("url", ""),
-            "run_id": h.get("run_id"), "thumb": thumb,
-            "views": (views.get((h["platform"], h["platform_id"])) or (0, None))[1]})
-    for lst in days.values():
-        lst.sort(key=lambda x: x["time"])
+        key = (datetime.fromtimestamp(t).day, h.get("run_id"), h.get("item"))
+        v = videos.get(key)
+        if v is None:
+            d = RUNS_DIR / str(h.get("run_id", "")) / str(h.get("item", ""))
+            # la miniatura diseñada del video largo (la de YouTube) se ve mucho mejor que un cuadro suelto
+            thumb = next((f"{h['item']}/{n}" for n in ("thumbnail.jpg", "thumb.jpg") if (d / n).is_file()), None)
+            v = videos[key] = {"run_id": h.get("run_id"), "item": h.get("item"), "title": h.get("title", ""),
+                               "format": learning.fmt(h), "thumb": thumb, "ts": t, "posts": []}
+        v["ts"] = min(v["ts"], t)
+        v["posts"].append({"platform": h["platform"], "url": h.get("url", ""),
+                           "views": (views.get((h["platform"], h["platform_id"])) or (0, None))[1]})
+    days: dict[int, list] = {}
+    for (day, _, _), v in sorted(videos.items(), key=lambda kv: kv[1]["ts"]):
+        v["posts"].sort(key=lambda p: order.get(p["platform"], 9))
+        v["time"] = datetime.fromtimestamp(v.pop("ts")).strftime("%H:%M")
+        days.setdefault(day, []).append(v)
     return {"year": year, "month": month, "days_in_month": cal.monthrange(year, month)[1],
             "first_weekday": cal.monthrange(year, month)[0], "days": days, "schedule": get_schedule(),
             "publish_time": S.load()["publish"].get("publish_time", "")}
@@ -1003,6 +1012,7 @@ def get_schedule():
     row = next(csv.reader(io.StringIO(text.strip())), [])
     # Windows separa «p. m.» con espacios finos que llegan como caracteres raros: se dejan espacios normales
     nxt = re.sub(r"\s+", " ", re.sub(r"[^\w/:.,\- ]", " ", row[1])).strip() if len(row) > 1 else ""
+    nxt = re.sub(r"(\d{1,2}:\d{2}):\d{2}", r"\1", nxt)  # sin segundos: «19/11/2026 9:00 p. m.»
     return {"enabled": True, "next_run": nxt}
 
 

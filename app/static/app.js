@@ -456,7 +456,7 @@ $("#videoDialog").addEventListener("close", () => $("#dialogVideo").pause());
 
 function renderScript() {
   const box = $("#scriptBox");
-  $("#hookChip").textContent = live.hook ? `Gancho: ${live.hook.replace("_", " ")}` : "";
+  $("#hookChip").textContent = live.hook ? `Gancho: ${hookName(live.hook)}` : "";
   const s = live.script;
   if (!s) { box.className = "script-box muted"; box.textContent = live.runId ? "El guion aparecerá cuando la IA termine de escribirlo." : "Sin guion todavía."; return; }
   const sig = JSON.stringify(s).length;
@@ -522,25 +522,48 @@ function renderActions() {
 }
 
 // «¿Qué video quieres crear?»: resumen de lo elegido; cada botón lleva a su sección de Configuración
+// nombres legibles de los estilos de gancho («error_comun» → «Error común»)
+const HOOK_NAME = { pregunta: "Pregunta", dato_sorprendente: "Dato sorprendente", error_comun: "Error común",
+  historia: "Historia", promesa: "Promesa", contraintuitivo: "Contraintuitivo" };
+function hookName(k) { return HOOK_NAME[k] || String(k || "").replace(/_/g, " "); }
+// iconos de línea, como los del menú (los emoji se veían de otro estilo y de otro tamaño)
+const ICON = {
+  palette: '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.9 1.4-1.8-.4-1.2.4-2.2 1.6-2.2H17a4 4 0 0 0 4-4c0-5.5-4-10-9-10z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7" r="1"/><circle cx="15.5" cy="7.5" r="1"/></svg>',
+  mic: '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
+  film: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M17 9h4M3 15h4M17 15h4"/></svg>',
+  image: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>',
+  play: '<svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+  chart: '<svg viewBox="0 0 24 24" style="width:30px;height:30px"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+  video: '<svg viewBox="0 0 24 24" style="width:30px;height:30px"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 10l5-3v10l-5-3"/></svg>',
+};
 function renderCreator() {
   const c = app.creator;
   if (!c) return;
-  const chip = (icon, title, value, anchor) => `<button type="button" class="cchip" data-goto="${anchor}" title="Cambiar en Configuración">
-    ${icon}<span><small>${esc(title)}</small>${esc(value)}</span></button>`;
+  const chip = (icon, title, value, anchor) => `<button type="button" class="cchip" data-goto="${anchor}" title="${esc(title)}: ${esc(value)} — cambiar en Configuración">
+    ${icon}<span><small>${esc(title)}</small><b>${esc(value)}</b></span></button>`;
   $("#creatorChips").innerHTML = [
-    chip(c.style_img ? `<img src="/static/styles/${encodeURIComponent(c.style_img)}" alt="">` : '<span class="ci">🎨</span>', "Estilo", c.style, "s-visual"),
-    chip('<span class="ci">🎙</span>', "Voz", c.voice, "s-video"),
-    chip('<span class="ci">🎬</span>', "Formato", c.format, "s-video"),
-    chip('<span class="ci">🖼</span>', "Material", c.provider, "s-visual"),
-    chip('<span class="ci">🧭</span>', "Nicho", c.niche.length > 34 ? c.niche.slice(0, 34) + "…" : c.niche, "s-content"),
+    chip(c.style_img ? `<img src="/static/styles/${encodeURIComponent(c.style_img)}" alt="">` : `<span class="ci">${ICON.palette}</span>`, "Estilo", c.style, "s-visual"),
+    chip(`<span class="ci">${ICON.mic}</span>`, "Voz", c.voice, "s-video"),
+    chip(`<span class="ci">${ICON.film}</span>`, "Formato", c.format, "s-video"),
+    chip(`<span class="ci">${ICON.image}</span>`, "Material", c.provider, "s-visual"),
   ].join("");
-  $$("#creatorChips [data-goto]").forEach((b) => (b.onclick = () => goToSetting(b.dataset.goto)));
+  // el nicho va en la frase de arriba (como enlace), no como un botón más que partía la fila en dos
+  const niche = (c.niche || "").split(" - ")[0].trim();
+  $("#creatorNiche").textContent = niche ? `«${niche}»` : "tu nicho";
+  $$("#creatorCard [data-goto]").forEach((b) => (b.onclick = (e) => { e.preventDefault(); goToSetting(b.dataset.goto); }));
 }
 function goToSetting(anchor) {
   showView("settings");
   setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" }), 700);
 }
-$("#btnCreate").onclick = () => $("#btnStart").click();
+// la caja de la idea crece con el texto (sin el tirador de tamaño)
+$("#ideaInput").addEventListener("input", (e) => {
+  const t = e.target;
+  t.style.height = "auto";
+  t.style.height = `${Math.min(t.scrollHeight, 220)}px`;
+});
 async function likeRun(runId) {
   try {
     const { id } = await api("/api/runs", { method: "POST", body: { publish: $("#optPublish").checked, like: runId } });
@@ -560,6 +583,7 @@ $("#btnStart").onclick = async () => {
     const idea = $("#ideaInput").value.trim();
     const { id } = await api("/api/runs", { method: "POST", body: { publish: $("#optPublish").checked, idea } });
     $("#ideaInput").value = "";
+    $("#ideaInput").style.height = "";
     toast(idea ? "Run iniciado con tu idea" : "Run iniciado", "ok");
     app.active = { run_id: id };
     await attach(id, true);
@@ -623,17 +647,17 @@ async function loadHistory() {
       const items = Object.keys(r.items);
       const dur = r.finished && r.started ? fmtDur(r.finished - r.started) : "";
       return `<div class="card run-card" data-id="${esc(r.id)}">
-        <div class="run-thumb">${r.thumb ? `<img src="${media(r.id, r.thumb)}" alt="" loading="lazy">` : '<svg viewBox="0 0 24 24" style="width:30px;height:30px"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 10l5-3v10l-5-3"/></svg>'}</div>
+        <div class="run-thumb">${r.thumb ? `<img src="${media(r.id, r.thumb)}" alt="" loading="lazy">` : (r.options.mode === "metrics" ? ICON.chart : ICON.video)}</div>
         <div class="run-body">
           <div class="run-meta"><span class="pill ${r.status}">${STATUS_TEXT[r.status] || r.status}</span><span>${r.started ? fmtDate(r.started) : esc(r.id)}</span></div>
           <div class="run-title">${esc(r.title || r.topic || (r.options.mode === "metrics" ? "Actualización de métricas" : "Sin título"))}</div>
-          <div class="run-meta"><span>${items.length ? `${items.length} video${items.length > 1 ? "s" : ""}` : ""}${dur ? ` · ${dur}` : ""}</span>
+          <div class="run-meta"><span>${[items.length ? `${items.length} video${items.length > 1 ? "s" : ""}` : "", dur].filter(Boolean).join(" · ")}</span>
             <span class="badges">${plats.map((p) => `<span class="platform ${p}">${p}</span>`).join("")}${r.upload_errors ? `<span class="platform" style="background:var(--err-soft);color:var(--err)">${r.upload_errors} error</span>` : ""}</span></div>
           <div class="run-actions">
             <button class="btn sm" data-act="open">Abrir</button>
             ${Object.values(r.items).some((i) => i.video) && !app.active ? `<button class="btn sm secondary" data-act="publish">Publicar</button>` : ""}
             ${Object.keys(r.items).length && !app.active && r.options.mode !== "metrics" ? `<button class="btn sm ghost" data-act="like" title="Misma fórmula y ganchos, tema nuevo">Otro como este</button>` : ""}
-            <button class="btn sm ghost" data-act="delete" style="margin-left:auto">Borrar</button>
+            <button class="btn sm ghost del" data-act="delete" title="Borrar este run y sus archivos">${ICON.trash}</button>
           </div>
         </div></div>`;
     }).join("");
@@ -675,15 +699,16 @@ async function loadCalendar() {
     const blanks = Array.from({ length: d.first_weekday }, () => '<div class="cal-cell empty"></div>').join("");
     const cells = Array.from({ length: d.days_in_month }, (_, i) => {
       const n = i + 1;
-      const pubs = d.days[n] || [];
-      const plats = [...new Set(pubs.map((p) => p.platform))];
-      const thumb = pubs.find((p) => p.thumb);
+      const vids = d.days[n] || [];
+      const plats = [...new Set(vids.flatMap((v) => v.posts.map((p) => p.platform)))]
+        .sort((a, b) => Object.keys(PLATFORM_NAME).indexOf(a) - Object.keys(PLATFORM_NAME).indexOf(b));
+      const cover = vids.find((v) => v.format === "long" && v.thumb) || vids.find((v) => v.thumb);
       const today = isThisMonth && n === now.getDate();
-      return `<div class="cal-cell ${today ? "today" : ""} ${cal.day === n ? "sel" : ""}" data-day="${n}">
+      return `<div class="cal-cell ${vids.length ? "has" : ""} ${today ? "today" : ""} ${cal.day === n ? "sel" : ""}" data-day="${n}">
         <span class="n">${n}</span>
-        ${thumb ? `<img src="${media(thumb.run_id, thumb.thumb)}" alt="" loading="lazy">` : ""}
-        <div class="dots">${plats.map((p) => `<span class="cal-dot ${p}" title="${PLATFORM_NAME[p] || p}"></span>`).join("")}</div>
-        ${pubs.length ? `<span class="cnt">${pubs.length} ${pubs.length > 1 ? "publicaciones" : "publicación"}</span>` : ""}</div>`;
+        ${cover ? `<img class="cal-thumb" src="${media(cover.run_id, cover.thumb)}" alt="" loading="lazy">` : ""}
+        ${vids.length ? `<div class="cal-foot"><span class="cnt">${vids.length} video${vids.length > 1 ? "s" : ""}</span>
+          <span class="dots">${plats.map((p) => `<span class="cal-dot ${p}" title="${PLATFORM_NAME[p] || p}"></span>`).join("")}</span></div>` : ""}</div>`;
     }).join("");
     $("#calGrid").innerHTML = heads + blanks + cells;
     $$("#calGrid [data-day]").forEach((c) => (c.onclick = () => { cal.day = Number(c.dataset.day); loadCalendarDay(); $$("#calGrid .cal-cell").forEach((x) => x.classList.toggle("sel", x === c)); }));
@@ -696,16 +721,22 @@ function loadCalendarDay() {
   if (!d) return;
   if (!cal.day) { $("#calDay").innerHTML = '<p class="muted">Elige un día para ver lo que se publicó.</p>'; return; }
   const date = new Date(cal.y, cal.m - 1, cal.day).toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" });
-  const pubs = d.days[cal.day] || [];
-  $("#calDay").innerHTML = `<h3>${esc(cap(date))}</h3>` + (pubs.length ? pubs.map((p) => `
-    <div class="cal-item">${p.thumb ? `<img src="${media(p.run_id, p.thumb)}" alt="" loading="lazy">` : ""}
-      <div><div class="t">${esc(p.title)}</div>
-      <div class="m"><span class="platform ${p.platform}">${PLATFORM_NAME[p.platform] || p.platform}</span>
-        <span>${p.format === "long" ? "Video largo" : "Short"} · ${p.time}</span>
-        ${p.views != null ? `<span>${fmtNum(p.views)} vistas</span>` : ""}
-        ${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">Abrir</a>` : ""}
-        ${p.run_id ? `<a href="#" data-run="${esc(p.run_id)}">Ver run</a>` : ""}</div></div></div>`).join("")
-    : '<p class="muted">No hay publicaciones este día.</p>');
+  const vids = d.days[cal.day] || [];
+  const posts = vids.reduce((n, v) => n + v.posts.length, 0);
+  const post = (p) => {
+    const inner = `<span class="cal-dot ${p.platform}"></span>${PLATFORM_NAME[p.platform] || p.platform}${p.views != null ? `<b>${fmtNum(p.views)}</b>` : '<b class="na" title="Aún sin medir">—</b>'}`;
+    const tip = `${PLATFORM_NAME[p.platform] || p.platform}${p.views != null ? ` · ${fmtNum(p.views)} vistas` : ""}`;
+    return p.url ? `<a class="cal-post" href="${esc(p.url)}" target="_blank" rel="noopener" title="Abrir en ${esc(tip)}">${inner}</a>`
+      : `<span class="cal-post" title="${esc(tip)}">${inner}</span>`;
+  };
+  $("#calDay").innerHTML = `<h3>${esc(cap(date))}</h3>`
+    + (vids.length ? `<div class="sub">${vids.length} video${vids.length > 1 ? "s" : ""} · ${posts} publicaci${posts > 1 ? "ones" : "ón"} · el número es de vistas</div>`
+      + vids.map((v) => `<div class="cal-video">
+        ${v.thumb ? `<img class="cal-thumb" src="${media(v.run_id, v.thumb)}" alt="" loading="lazy">` : '<span class="cal-thumb"></span>'}
+        <div><div class="t">${esc(v.title)}</div>
+          <div class="m">${v.format === "long" ? "Video largo" : "Short"} · ${v.time}${v.run_id ? ` · <a href="#" data-run="${esc(v.run_id)}">Ver run</a>` : ""}</div>
+          <div class="cal-posts">${v.posts.map(post).join("")}</div></div></div>`).join("")
+      : '<p class="muted">No hay publicaciones este día.</p>');
   $$("#calDay [data-run]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); showView("live"); attach(a.dataset.run, true); }));
 }
 // estado de cada cuenta, como en JayMaker: avisa cuando una sesión venció y hay que volver a conectarla
@@ -719,11 +750,11 @@ async function loadCalendarAccounts() {
     if (p.tiktok) acc.push(["tiktok", p.tiktok_method === "api" ? c.tiktok.connected : c.browser.tiktok.connected]);
     if (p.facebook) acc.push(["facebook", c.facebook.connected && !c.facebook.error]);
     if (p.instagram) acc.push(["instagram", c.instagram.connected || c.browser.instagram.connected]);
-    box.innerHTML = `<b style="margin-right:6px">Cuentas</b>` + (acc.length ? acc.map(([k, ok]) =>
-      `<span class="cal-acc ${ok ? "ok" : "bad"}"><span class="cal-dot ${k}"></span>${PLATFORM_NAME[k]}${ok ? " · conectada" : " · hay que reconectar"}</span>`).join("")
+    box.innerHTML = `<span class="lbl">Cuentas</span>` + (acc.length ? acc.map(([k, ok]) =>
+      `<span class="cal-acc ${ok ? "ok" : "bad"}"><span class="cal-dot ${k}"></span>${PLATFORM_NAME[k]}<span class="st">${ok ? "conectada" : "hay que reconectar"}</span></span>`).join("")
       : '<span class="muted">No hay redes activas para publicar.</span>')
-      + `<a href="#" id="calManage" style="margin-left:auto">Administrar cuentas</a>`;
-    $("#calManage").onclick = (e) => { e.preventDefault(); goToSetting("s-connections"); };
+      + `<button class="btn sm ghost" id="calManage">Administrar cuentas</button>`;
+    $("#calManage").onclick = () => goToSetting("s-connections");
   } catch (e) { box.innerHTML = `<span class="muted">No se pudo revisar las cuentas (${esc(e.message)}).</span>`; }
 }
 $("#calPrev").onclick = () => { cal.m -= 1; if (cal.m < 1) { cal.m = 12; cal.y -= 1; } cal.day = null; loadCalendar(); };
@@ -758,13 +789,13 @@ async function loadLearning() {
         const left = s.mean >= 0 ? 50 : 50 - w;
         bar = `<div style="left:${left}%;width:${Math.max(w, 1)}%;background:${s.mean >= 0 ? "var(--ok)" : "var(--err)"}"></div>`;
       }
-      return `<div title="${esc(desc)}"><div class="sbar-top"><span>${esc(k.replace("_", " "))}</span>
+      return `<div title="${esc(desc)}"><div class="sbar-top"><span>${esc(hookName(k))}</span>
         <span>${s ? `${s.mean >= 0 ? "+" : ""}${s.mean.toFixed(2)} · n=${s.n}` : "sin datos"}</span></div>
         <div class="sbar"><span class="mid"></span>${bar}</div></div>`;
     }).join("");
     const fmtName = (f) => (f === "long" ? "Video largo" : "Shorts");
     const sum = d.summary || [];
-    $("#platformTable").innerHTML = sum.length ? `<thead><tr><th>Red</th><th>Formato</th><th>Publicados</th><th>Vistas</th><th>Promedio</th></tr></thead>
+    $("#platformTable").innerHTML = sum.length ? `<thead><tr><th>Red</th><th>Formato</th><th class="num">Publicados</th><th class="num">Vistas</th><th class="num">Promedio</th></tr></thead>
       <tbody>${sum.map((g) => `<tr><td><span class="platform ${g.platform}">${g.platform}</span></td><td>${fmtName(g.format)}</td>
         <td class="num">${g.n}</td><td class="num">${g.measured ? fmtNum(g.views) : "—"}</td>
         <td class="num">${g.measured ? fmtNum(Math.round(g.views / g.measured)) : "—"}</td></tr>`).join("")}</tbody>`
@@ -773,9 +804,9 @@ async function loadLearning() {
     $("#insightList").innerHTML = ins.length ? ins.map((x) => `<li>${esc(x)}</li>`).join("")
       : `<li class="muted">Todavía no hay datos suficientes para sacar conclusiones (hacen falta al menos 2 publicaciones maduras de cada variante). Con varios días de publicaciones aparecerán aquí.</li>`;
     const pubs = d.publications;
-    $("#pubTable").innerHTML = pubs.length ? `<thead><tr><th>Fecha</th><th>Plataforma</th><th>Formato</th><th>Título</th><th>Gancho</th><th>Vistas</th><th>Likes</th><th>Coment.</th><th>Edad</th><th></th></tr></thead>
+    $("#pubTable").innerHTML = pubs.length ? `<thead><tr><th>Fecha</th><th>Plataforma</th><th>Formato</th><th>Título</th><th>Gancho</th><th class="num">Vistas</th><th class="num">Likes</th><th class="num">Coment.</th><th class="num">Edad</th><th></th></tr></thead>
       <tbody>${pubs.map((p) => `<tr><td>${fmtDate(p.published_at)}</td><td><span class="platform ${p.platform}">${p.platform}</span></td><td>${fmtName(p.format)}</td>
-        <td class="wrap">${esc(p.title)}</td><td>${esc((p.hook_style || "").replace("_", " "))}</td>
+        <td class="wrap">${esc(p.title)}</td><td>${esc(hookName(p.hook_style))}</td>
         <td class="num">${fmtNum(p.views)}</td><td class="num">${fmtNum(p.likes)}</td><td class="num">${fmtNum(p.comments)}</td>
         <td class="num">${p.age_hours != null ? `${Math.round(p.age_hours)} h` : "—"}</td>
         <td>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">Abrir</a>` : ""}</td></tr>`).join("")}</tbody>`
@@ -877,9 +908,9 @@ function styleCards(path, label, presets, opts = {}) {
       ${img ? `<img src="/static/styles/${encodeURIComponent(img)}" alt="" loading="lazy">` : '<span class="style-ph">🎨</span>'}
       <span class="style-name">${esc(txt)}</span></label>`;
   }).join("");
-  const customCard = `<label class="style-card ${custom ? "on" : ""}" title="Escribe tu propio estilo">
+  const customCard = `<label class="style-card custom ${custom ? "on" : ""}" title="Escribe tu propio estilo">
     <input type="radio" name="${path}" data-choice="${path}" value="${CUSTOM}" ${custom ? "checked" : ""}>
-    <span class="style-ph">✎</span><span class="style-name">Personalizado…</span></label>`;
+    ${ICON.pencil}<span class="custom-name">${custom ? "✓ " : ""}Personalizado…</span></label>`;
   const inp = custom ? `<input type="text" data-path="${path}" value="${esc(v)}" placeholder="${esc(opts.placeholder || "Escribe el valor")}" style="margin-top:8px">` : "";
   return `<div class="field full"><label>${esc(label)}</label><div class="style-grid">${cards}${customCard}</div>${inp}${opts.help ? `<span class="help">${opts.help}</span>` : ""}</div>`;
 }
@@ -887,7 +918,7 @@ function styleCards(path, label, presets, opts = {}) {
 function voicePick(id, path, label, options, engine, help) {
   return `<div class="field"><label for="${id}">${esc(label)}</label><div class="with-btn">
     <select id="${id}" data-path="${path}">${options}</select>
-    <button type="button" class="btn secondary" data-listen="${engine}" title="Escuchar una frase de muestra con esta voz">▶ Escuchar</button></div>
+    <button type="button" class="btn secondary" data-listen="${engine}" title="Escuchar una frase de muestra con esta voz">${ICON.play}<span>Escuchar</span></button></div>
     ${help ? `<span class="help">${help}</span>` : ""}</div>`;
 }
 async function listenVoice(btn) {
@@ -895,8 +926,8 @@ async function listenVoice(btn) {
   const engine = btn.dataset.listen;
   const voice = engine === "gemini" ? d.voice.gemini_voice : d.voice.name;
   const q = new URLSearchParams({ engine, voice, lang: d.content.language, style: engine === "gemini" ? (d.voice.gemini_style || "") : "", t: TOKEN });
-  const old = btn.textContent;
-  btn.disabled = true; btn.textContent = "Generando…";
+  const label = btn.querySelector("span");
+  btn.disabled = true; label.textContent = "Generando…";
   try {
     const r = await fetch(`/api/voice-preview?${q}`);
     if (!r.ok) {
@@ -906,10 +937,10 @@ async function listenVoice(btn) {
     }
     if (window._voiceAudio) window._voiceAudio.pause();
     window._voiceAudio = new Audio(URL.createObjectURL(await r.blob()));
-    btn.textContent = "■ Sonando";
-    window._voiceAudio.onended = () => { btn.textContent = old; };
+    label.textContent = "Sonando…";
+    window._voiceAudio.onended = () => { label.textContent = "Escuchar"; };
     await window._voiceAudio.play();
-  } catch (e) { toast(e.message, "err"); btn.textContent = old; }
+  } catch (e) { toast(e.message, "err"); label.textContent = "Escuchar"; }
   finally { btn.disabled = false; }
 }
 function radioCards(path, options) {
@@ -991,9 +1022,9 @@ function renderSettings() {
       ${field("video.quality", "Calidad", "select", { options: [["1080p", "1080p (mejor)"], ["720p", "720p (más rápido)"]] })}
       ${field("voice.engine", "Motor de voz", "select", { options: [["edge", "Microsoft Edge (gratis, sincronía exacta)"], ["gemini", "Gemini TTS (gratis con tu clave, más expresiva)"]], help: d.voice.engine === "gemini" ? "Si Gemini falla o se agota la cuota, ese video se narra con la voz de Edge." : "" })}
       ${d.voice.engine === "gemini" ? `
-      ${voicePick("f-voice-gemini_voice", "voice.gemini_voice", "Voz de Gemini", cfg.geminiVoices.map((v) => `<option value="${esc(v)}" ${v === d.voice.gemini_voice ? "selected" : ""}>${esc(cfg.catalog.gemini_voice_info[v] ? `${v} · ${cfg.catalog.gemini_voice_info[v]}` : v)}</option>`).join(""), "gemini", "Todas hablan el idioma del guion. La muestra usa tu estilo de lectura y gasta un poco de la cuota gratuita de Gemini solo la primera vez (luego queda guardada).")}
+      ${voicePick("f-voice-gemini_voice", "voice.gemini_voice", "Voz de Gemini", cfg.geminiVoices.map((v) => `<option value="${esc(v)}" ${v === d.voice.gemini_voice ? "selected" : ""}>${esc(cfg.catalog.gemini_voice_info[v] ? `${v} · ${cfg.catalog.gemini_voice_info[v]}` : v)}</option>`).join(""), "gemini", "Todas hablan el idioma del guion. La muestra usa tu estilo de lectura (la primera vez gasta un poco de cuota de Gemini).")}
       ${choiceField("voice.gemini_style", "Estilo de lectura", cfg.catalog.reading_styles, { placeholder: "Cómo debe sonar, en tus palabras", help: d.content.language === "es" ? "Elige uno o escribe el tuyo con «Personalizado…»." : "Los predefinidos se traducen solos al idioma del video. Si escribes uno propio, escríbelo en ese idioma: un estilo en español hace que la voz meta palabras en español." })}` : ""}
-      ${voicePick("f-voice-name", "voice.name", `Voz de Edge${d.voice.engine === "gemini" ? " (respaldo)" : ""}`, `<option>${esc(d.voice.name)}</option>`, "edge", `Agrupadas por país; solo voces de ${esc((cfg.catalog.languages.find(([c]) => c === d.content.language) || ["", ""])[1].toLowerCase())}. Pulsa «Escuchar» para oír una frase de muestra.`)}
+      ${voicePick("f-voice-name", "voice.name", `Voz de Edge${d.voice.engine === "gemini" ? " (respaldo)" : ""}`, `<option>${esc(d.voice.name)}</option>`, "edge", `Agrupadas por país; solo voces de ${esc((cfg.catalog.languages.find(([c]) => c === d.content.language) || ["", ""])[1].toLowerCase())}.`)}
       ${field("voice.rate", "Velocidad (Edge)", "select", { options: [["-10%", "Lenta"], ["+0%", "Normal"], ["+6%", "Ágil"], ["+12%", "Rápida"], ["+20%", "Muy rápida"]] })}
     </div>
     <div style="margin-top:12px">
@@ -1101,10 +1132,8 @@ function renderSettings() {
       ${toggle("publish.instagram", "Instagram Reels", (d.publish.long_everywhere !== false ? "Shorts y video largo (hasta 15 min). " : "Solo los Shorts. ") + "Usa el mismo token de página de Facebook; tu Instagram debe ser profesional y estar vinculado a la página.")}
     </div>
     <div class="platform-block">
-      ${toggle("publish.long_everywhere", "Video largo en todas las redes", "Además de YouTube y Facebook, el video largo se publica en TikTok e Instagram (horizontal, con su formato original).")}
-    </div>
-    <div class="platform-block">
-      ${toggle("publish.link_long", "Enlazar los Shorts al video largo", "Cada Short lleva el enlace del video largo del día en la descripción y, en YouTube, como «Vídeo relacionado» (aparece como botón dentro del Short). Es la forma más efectiva de llevar público a los videos largos en un canal nuevo. YouTube pide una verificación única para usar «Vídeo relacionado».")}
+      ${toggle("publish.long_everywhere", "Video largo en todas las redes", "También en TikTok e Instagram, en su formato horizontal original.")}
+      ${toggle("publish.link_long", "Enlazar los Shorts al video largo", "En la descripción y, en YouTube, con el botón «Vídeo relacionado» dentro del Short. Es lo que más público lleva a los videos largos en un canal nuevo.")}
     </div>
     <div class="platform-block">
       ${toggle("publish.meta_fallback", "Segunda vía si falla Meta", "La API de Meta a veces rechaza un video por un fallo suyo. Con esto, Instagram se publica por navegador (con la sesión de Conexiones) y un Reel de Facebook que falle se sube como video de la página. Nunca se reintenta si hay duda de que ya se publicó.")}

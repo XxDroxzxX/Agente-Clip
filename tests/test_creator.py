@@ -68,8 +68,10 @@ class ServerTest(unittest.TestCase):
                 mock.patch.object(srv, "get_schedule", return_value={"enabled": False}):
             c = srv.calendar(2026, 11)
         self.assertEqual(list(c["days"]), [18])
-        self.assertEqual(c["days"][18][0]["views"], 7)
-        self.assertEqual(c["days"][18][0]["format"], "long")
+        video = c["days"][18][0]  # agrupado por video: sus publicaciones van dentro
+        self.assertEqual(video["format"], "long")
+        self.assertEqual(video["time"], "20:39")
+        self.assertEqual(video["posts"], [{"platform": "youtube", "url": "u", "views": 7}])
         self.assertEqual(c["days_in_month"], 30)
         with self.assertRaises(srv.HTTPException):
             srv.calendar(2026, 13)

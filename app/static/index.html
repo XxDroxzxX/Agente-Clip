@@ -46,14 +46,10 @@
         </div>
         <div class="topbar-actions">
           <button class="btn ghost hidden" id="btnBackToActive">Ver run en curso</button>
-          <label class="switch" title="Publicar automáticamente al terminar">
-            <input type="checkbox" id="optPublish"><span class="track"></span><span>Publicar al terminar</span>
-          </label>
           <button class="btn danger hidden" id="btnCancel"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Cancelar</button>
           <button class="btn secondary hidden" id="btnResume" title="Retoma desde el paso que falló, reutilizando lo que ya estaba listo"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/></svg>Reintentar</button>
           <button class="btn ghost hidden" id="btnLike" title="Un run nuevo con la misma fórmula (tipo de historia, estructura y ganchos) y un tema nuevo"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>Hacer otro como este</button>
           <button class="btn secondary hidden" id="btnPublish"><svg viewBox="0 0 24 24"><path d="M12 16V4M6 10l6-6 6 6M4 20h16"/></svg>Publicar</button>
-          <button class="btn primary" id="btnStart"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>Iniciar run</button>
         </div>
       </header>
 
@@ -61,12 +57,17 @@
 
       <div class="card creator-card hidden" id="creatorCard">
         <h2 class="creator-title">¿Qué video quieres crear?</h2>
-        <p class="muted creator-sub">Escribe una idea o pega un guion. Si lo dejas vacío, el agente elige el tema con las tendencias de tu nicho.</p>
+        <p class="muted creator-sub">Escribe una idea o pega un guion. Si lo dejas vacío, el agente elige el tema con las tendencias de <a href="#" id="creatorNiche" data-goto="s-content" title="Cambiar el nicho">tu nicho</a>.</p>
         <div class="creator-box">
-          <textarea id="ideaInput" rows="3" maxlength="500" placeholder="Ej.: la historia real del faro que se apagaba solo cada noche de 1987…"></textarea>
+          <textarea id="ideaInput" rows="2" maxlength="500" placeholder="Ej.: la historia real del faro que se apagaba solo cada noche de 1987…"></textarea>
           <div class="creator-bar">
             <div class="creator-chips" id="creatorChips"></div>
-            <button class="btn primary" id="btnCreate"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>Crear video</button>
+            <div class="creator-go">
+              <label class="switch" title="Publicar automáticamente en tus redes cuando termine">
+                <input type="checkbox" id="optPublish"><span class="track"></span><span>Publicar al terminar</span>
+              </label>
+              <button class="btn primary" id="btnStart"><svg viewBox="0 0 24 24"><path d="M8 5l11 7-11 7z"/></svg>Crear video</button>
+            </div>
           </div>
         </div>
       </div>
@@ -137,10 +138,12 @@
         <div class="topbar-title"><div class="eyebrow">Calendario</div><h1>Publicaciones</h1>
           <div class="meta-row"><span class="meta" id="calSchedule"></span></div></div>
         <div class="topbar-actions">
+          <div class="cal-nav">
+            <button class="btn ghost icon" id="calPrev" title="Mes anterior"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+            <span class="cal-month" id="calMonth"></span>
+            <button class="btn ghost icon" id="calNext" title="Mes siguiente"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
+          </div>
           <button class="btn ghost" id="calToday">Hoy</button>
-          <button class="btn ghost" id="calPrev" title="Mes anterior">‹</button>
-          <span class="cal-month" id="calMonth"></span>
-          <button class="btn ghost" id="calNext" title="Mes siguiente">›</button>
         </div>
       </header>
       <div class="card cal-accounts" id="calAccounts"></div>
@@ -156,32 +159,33 @@
         <div class="topbar-title"><div class="eyebrow">Aprendizaje</div><h1>Qué está funcionando</h1></div>
         <div class="topbar-actions"><button class="btn secondary" id="btnMetrics">Actualizar métricas ahora</button></div>
       </header>
-      <div class="two-col">
-        <div class="card">
-          <div class="card-head"><h2>Estilos de gancho</h2><span class="muted small" id="learnSamples"></span></div>
-          <p class="muted small">Cada video del día usa un estilo de gancho distinto (el largo y cada Short). Cuando sus métricas maduran, el agente elige más a menudo los que mejor rinden, sin dejar de probar los demás.</p>
-          <div id="styleBars" class="style-bars"></div>
+      <div class="two-col stack-cols">
+        <div class="col-stack">
+          <div class="card">
+            <div class="card-head"><h2>Estilos de gancho</h2><span class="muted small" id="learnSamples"></span></div>
+            <p class="muted small">Cada video del día usa un estilo de gancho distinto (el largo y cada Short). Cuando sus métricas maduran, el agente elige más a menudo los que mejor rinden, sin dejar de probar los demás.</p>
+            <div id="styleBars" class="style-bars"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Por red social</h2><span class="muted small">Vistas sumadas (última medición)</span></div>
+            <div class="table-wrap"><table class="table" id="platformTable"></table></div>
+          </div>
         </div>
-        <div class="card">
-          <div class="card-head"><h2>Cómo se mide</h2></div>
-          <ul class="explain">
-            <li>Se consultan las métricas de todo lo publicado en los últimos días, no solo lo de hoy: YouTube y Facebook por su API, TikTok desde TikTok Studio con tu sesión, Instagram por su API.</li>
-            <li>Solo cuentan las publicaciones con al menos <b id="minAgeLbl">48</b> h de antigüedad.</li>
-            <li>Puntaje = log(vistas) × (1 + 5 × interacción). Compartir y guardar valen el doble que un «me gusta».</li>
-            <li>Cada video se compara solo con los de su misma red y formato (un Short de TikTok con Shorts de TikTok, un video largo de YouTube con largos de YouTube), para que una red o un formato no aplasten a los demás.</li>
-            <li>Además del gancho mide la música, la duración, las animaciones y la voz, y se lo cuenta al guionista.</li>
-          </ul>
-        </div>
-      </div>
-      <div class="two-col">
-        <div class="card">
-          <div class="card-head"><h2>Por red social</h2></div>
-          <p class="muted small">Vistas sumadas de lo publicado (última medición de cada publicación).</p>
-          <div class="table-wrap"><table class="table" id="platformTable"></table></div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h2>Lo que ya aprendió</h2></div>
-          <ul class="explain" id="insightList"></ul>
+        <div class="col-stack">
+          <div class="card">
+            <div class="card-head"><h2>Lo que ya aprendió</h2></div>
+            <ul class="explain" id="insightList"></ul>
+          </div>
+          <div class="card">
+            <div class="card-head"><h2>Cómo se mide</h2></div>
+            <ul class="explain">
+              <li>Se consultan las métricas de todo lo publicado en los últimos días, no solo lo de hoy: YouTube y Facebook por su API, TikTok desde TikTok Studio con tu sesión, Instagram por su API.</li>
+              <li>Solo cuentan las publicaciones con al menos <b id="minAgeLbl">48</b> h de antigüedad.</li>
+              <li>Puntaje = log(vistas) × (1 + 5 × interacción). Compartir y guardar valen el doble que un «me gusta».</li>
+              <li>Cada video se compara solo con los de su misma red y formato (un Short de TikTok con Shorts de TikTok, un video largo de YouTube con largos de YouTube), para que una red o un formato no aplasten a los demás.</li>
+              <li>Además del gancho mide la música, la duración, las animaciones y la voz, y se lo cuenta al guionista.</li>
+            </ul>
+          </div>
         </div>
       </div>
       <div class="card">
