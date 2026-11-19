@@ -617,6 +617,24 @@ def upload_tiktok(video: Path, caption: str, privacy: str, on_progress: Callable
         else:
             _fail(page, "tiktok", "La subida a TikTok no terminó en 30 minutos.")
         _tt_dismiss_tour(page)
+        # con videos largos TikTok termina de procesar después y el texto escrito puede quedar vacío (el largo del
+        # 2026-11-18 salió sin título ni hashtags): se comprueba y, si falta, se escribe de nuevo
+        key = re.sub(r"\s+", " ", caption).strip()[:20]
+        for _ in range(2):
+            try:
+                now = re.sub(r"\s+", " ", editor.inner_text(timeout=5000)).strip()
+            except Exception:
+                now = ""
+            if key and key in now:
+                break
+            editor.click()
+            page.keyboard.press("Control+A")
+            page.keyboard.press("Delete")
+            page.keyboard.insert_text(caption[:2200])
+            page.wait_for_timeout(800)
+            page.keyboard.press("Escape")
+        else:
+            _fail(page, "tiktok", "TikTok borró el texto de la publicación y no se pudo escribir de nuevo; no se publicó.")
         if not any(_tt_privacy_now(page).startswith(t) for t in TT_PRIVACY[privacy]):  # última comprobación
             _fail(page, "tiktok", "La privacidad cambió antes de publicar; no se publicó por seguridad.")
         if dry_run:
@@ -638,12 +656,31 @@ def upload_tiktok(video: Path, caption: str, privacy: str, on_progress: Callable
             "via": "navegador"}
 
 
-def tiktok_stats(ids: list[str], max_scrolls: int = 8) -> dict[str, dict]:
+def tt_match(item: dict, look: dict) -> bool:
+    """¿Es este video de TikTok Studio la publicación que quedó sin id? Por el texto o, si TikTok lo dejó vacío,
+    por la duración y la hora de publicación."""
+    desc = re.sub(r"\s+", " ", str(item.get("desc") or "")).strip()
+    text = re.sub(r"\s+", " ", look.get("text") or "").strip()[:25]
+    if desc and text:
+        return desc.startswith(text) or text.startswith(desc[:25])
+    try:
+        dur = float(item.get("duration") or 0) / 1000
+        posted = float(item.get("create_time") or item.get("post_time") or 0)
+    except (TypeError, ValueError):
+        return False
+    return (look.get("duration") and abs(dur - look["duration"]) <= 2.5
+            and look.get("ts") and abs(posted - look["ts"]) <= 1800)
+
+
+def tiktok_stats(ids: list[str], max_scrolls: int = 8, lookups: dict | None = None) -> dict[str, dict]:
     """Métricas de TikTok desde TikTok Studio con la sesión guardada (la API oficial exige una app aprobada).
-    Lee la lista que la propia página recibe de TikTok (`item_list`), no la tabla en pantalla: es más estable."""
+    Lee la lista que la propia página recibe de TikTok (`item_list`), no la tabla en pantalla: es más estable.
+    lookups: {id provisional («tt-browser-…»): {"text", "duration", "ts"}} para publicaciones cuyo id no se supo al
+    publicar; si se encuentran, su resultado trae «resolved_id» con el id real."""
     want = {str(i) for i in ids if str(i).isdigit()}
+    lookups = dict(lookups or {})
     found: dict[str, dict] = {}
-    if not want:
+    if not want and not lookups:
         return found
     with _browser("tiktok", visible=False) as ctx:
         if not _logged_in(ctx, "tiktok"):
@@ -659,10 +696,17 @@ def tiktok_stats(ids: list[str], max_scrolls: int = 8) -> dict[str, dict]:
                 return
             for it in items:
                 iid = str(it.get("item_id", ""))
+                stats = {"views": int(it.get("play_count") or 0), "likes": int(it.get("like_count") or 0),
+                         "comments": int(it.get("comment_count") or 0),
+                         "shares": int(it.get("share_count") or 0), "saves": int(it.get("favorite_count") or 0)}
                 if iid in want:
-                    found[iid] = {"views": int(it.get("play_count") or 0), "likes": int(it.get("like_count") or 0),
-                                  "comments": int(it.get("comment_count") or 0),
-                                  "shares": int(it.get("share_count") or 0), "saves": int(it.get("favorite_count") or 0)}
+                    found[iid] = stats
+                taken = {v.get("resolved_id") for v in found.values()} | want
+                for tmp, look in list(lookups.items()):
+                    if iid not in taken and tt_match(it, look):
+                        found[tmp] = {**stats, "resolved_id": iid}
+                        lookups.pop(tmp)
+                        break
 
         page.on("response", on_response)
         page.goto("https://www.tiktok.com/tiktokstudio/content", wait_until="domcontentloaded")
@@ -671,7 +715,7 @@ def tiktok_stats(ids: list[str], max_scrolls: int = 8) -> dict[str, dict]:
             _save_status("tiktok", connected=False)
             raise BrowserError("La sesión de TikTok venció. Vuelve a iniciar sesión en Configuración → Conexiones.")
         for _ in range(max_scrolls):  # la lista carga por páginas al bajar
-            if want <= set(found):
+            if want <= set(found) and not lookups:
                 break
             page.mouse.wheel(0, 4000)
             page.wait_for_timeout(2500)

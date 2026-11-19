@@ -8,6 +8,17 @@ from .events import Run
 from .publish import facebook, instagram, youtube
 
 
+def _resolve_ids(platform: str, resolved: dict[str, str]) -> None:
+    """Guarda en el historial el id real de publicaciones que habían quedado con un id provisional."""
+    from .paths import HISTORY_FILE
+    from .util import write_json
+    hist = learning.load_history()
+    for h in hist:
+        if h.get("platform") == platform and str(h.get("platform_id")) in resolved:
+            h["platform_id"] = resolved[str(h["platform_id"])]
+    write_json(HISTORY_FILE, hist)
+
+
 def collect(run: Run, cfg: dict) -> dict:
     sid = "metrics"
     m = cfg["metrics"]
@@ -54,11 +65,24 @@ def collect(run: Run, cfg: dict) -> dict:
             run.info("TikTok: sin sesión en el navegador no hay métricas (inicia sesión en Conexiones).", sid)
         else:
             run.step_progress(sid, 0.9, f"TikTok: {len(by_platform['tiktok'])} publicaciones (TikTok Studio)")
+            # publicaciones cuyo id no se supo al publicar (TikTok aún procesaba): se buscan por texto o duración
+            lookups = {str(h["platform_id"]): {"text": h.get("title", ""), "duration": h.get("duration"),
+                                               "ts": h.get("published_at")}
+                       for h in by_platform["tiktok"] if str(h["platform_id"]).startswith("tt-browser-")}
             try:
-                stats = browser.tiktok_stats([h["platform_id"] for h in by_platform["tiktok"]])
+                stats = browser.tiktok_stats([h["platform_id"] for h in by_platform["tiktok"]], lookups=lookups)
             except Exception as e:
                 run.warn(f"TikTok: no se pudieron leer las métricas ({str(e)[:160]}).", sid)
                 stats = {}
+            resolved = {tmp: st.pop("resolved_id") for tmp, st in stats.items() if "resolved_id" in st}
+            if resolved:
+                _resolve_ids("tiktok", resolved)
+                for h in by_platform["tiktok"]:
+                    real = resolved.get(str(h["platform_id"]))
+                    if real:
+                        stats[real] = stats.pop(str(h["platform_id"]))
+                        h["platform_id"] = real
+                run.info(f"TikTok: se identificaron {len(resolved)} publicación(es) que habían quedado sin id.", sid)
             for h in by_platform["tiktok"]:
                 st = stats.get(str(h["platform_id"]))
                 if st:

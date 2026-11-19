@@ -429,6 +429,9 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
                 res = _facebook(run, p, video, plan, desc, tags, prog, key)
             rec = {"item": key, "platform": platform, "title": plan.title, **res}
             run.add_upload(rec)
+            if platform == "youtube" and res.get("related_pending") and yt_long:
+                # el formulario de subida no siempre muestra «Vídeo relacionado»; la página de edición sí
+                _retry_related(run, key, p)
             item = run.state["items"].get(key, {})
             history.append({"run_id": run.id, "item": key, "platform": platform, "platform_id": res["platform_id"],
                             "title": plan.title, "hook_style": hook, "published_at": time.time(), "url": res.get("url", ""),
