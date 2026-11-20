@@ -867,7 +867,7 @@ async function loadCalendarAccounts() {
     if (p.youtube) acc.push(["youtube", p.youtube_method === "api" ? c.youtube.connected && !c.youtube.error : c.browser.youtube.connected]);
     if (p.tiktok) acc.push(["tiktok", p.tiktok_method === "api" ? c.tiktok.connected : c.browser.tiktok.connected]);
     if (p.facebook) acc.push(["facebook", c.facebook.connected && !c.facebook.error]);
-    if (p.instagram) acc.push(["instagram", c.instagram.connected || c.browser.instagram.connected]);
+    if (p.instagram) acc.push(["instagram", c.instagram.connected]);
     box.innerHTML = `<span class="lbl">Cuentas</span>` + (acc.length ? acc.map(([k, ok]) =>
       `<span class="cal-acc ${ok ? "ok" : "bad"}"><span class="cal-dot ${k}"></span>${PLATFORM_NAME[k]}<span class="st">${ok ? "conectada" : "hay que reconectar"}</span></span>`).join("")
       : '<span class="muted">No hay redes activas para publicar.</span>')
@@ -1266,14 +1266,14 @@ function renderSettings() {
       ${d.publish.facebook ? `<div class="form-grid">${choiceField("publish.facebook_graph_version", "Versión de Graph API", cfg.catalog.graph_versions.map((v) => [v, `${v} (recomendada)`]), { placeholder: "vNN.0, p. ej. v25.0", help: "Cámbiala solo si Meta avisa que esta versión quedó obsoleta." })}</div>` : ""}
     </div>
     <div class="platform-block">
-      ${toggle("publish.instagram", "Instagram Reels", (d.publish.long_everywhere !== false ? "Shorts y video largo (hasta 15 min). " : "Solo los Shorts. ") + "Usa el mismo token de página de Facebook; tu Instagram debe ser profesional y estar vinculado a la página.")}
+      ${toggle("publish.instagram", "Instagram Reels", "Solo los Shorts y solo por la API oficial de Meta (con el token de tu página). Si la API falla, el Short queda pendiente para subirlo desde tu celular: publicar con un navegador automático hace que Instagram bloquee la cuenta.")}
     </div>
     <div class="platform-block">
-      ${toggle("publish.long_everywhere", "Video largo en todas las redes", "También en TikTok e Instagram, en su formato horizontal original.")}
+      ${toggle("publish.long_everywhere", "Video largo también en TikTok", "Además de YouTube y Facebook, en su formato horizontal original.")}
       ${toggle("publish.link_long", "Enlazar los Shorts al video largo", "En la descripción y, en YouTube, con el botón «Vídeo relacionado» dentro del Short. Es lo que más público lleva a los videos largos en un canal nuevo.")}
     </div>
     <div class="platform-block">
-      ${toggle("publish.meta_fallback", "Segunda vía si falla Meta", "La API de Meta a veces rechaza un video por un fallo suyo. Con esto, Instagram se publica por navegador (con la sesión de Conexiones) y un Reel de Facebook que falle se sube como video de la página. Nunca se reintenta si hay duda de que ya se publicó.")}
+      ${toggle("publish.meta_fallback", "Segunda vía si falla Facebook", "Si un Reel de Facebook falla, se sube como video de la página (por la misma API oficial). Nunca se reintenta si hay duda de que ya se publicó.")}
     </div>
     <div class="form-grid" style="margin-top:16px">
       ${numSelect("metrics.min_age_hours", "Medir un video después de", [[24, "1 día"], [48, "2 días (recomendado)"], [72, "3 días"], [168, "1 semana"]])}
@@ -1630,7 +1630,7 @@ async function loadConnections() {
         ${!fb.connected ? `<button class="btn sm secondary" data-goto="facebook_page_token">Agregar token de Facebook</button>`
           : !ig.connected ? `<button class="btn sm" id="btnIgRetry">Comprobar de nuevo</button>` : ""}
       </div>` : ""}
-      ${cfg.draft.publish.instagram && cfg.draft.publish.meta_fallback !== false ? browserRow("instagram", "Instagram", "instagram", "Instagram · respaldo") : ""}`;
+`;
     $$("#connBox [data-goto]").forEach((b) => (b.onclick = () => goSecret(b.dataset.goto)));
     const bIg = $("#btnIgRetry");
     if (bIg) bIg.onclick = async () => { bIg.disabled = true; await api("/api/connections?fresh=1").catch(() => {}); loadConnections(); };

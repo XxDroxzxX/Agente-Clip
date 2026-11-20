@@ -41,21 +41,20 @@ class InstagramFallbackTest(unittest.TestCase):
         res, web, _ = self._go(lambda *a: dict(OK))
         web.assert_not_called()
 
-    def test_api_error_uses_browser_with_ai_label(self):
-        res, web, run = self._go(RuntimeError("ProcessingFailedError"))
-        self.assertIn("navegador", res["note"])
-        self.assertFalse(web.call_args.kwargs["ai_generated"])  # sin declaración de IA salvo que el usuario la active
-        self.assertTrue(run.warnings)
+    def test_api_error_never_uses_browser(self):
+        # Instagram suspendió la cuenta por «comportamientos automatizados» (2026-11-19): nunca más por navegador
+        res, web, _ = self._go(RuntimeError("ProcessingFailedError"))
+        self.assertIsInstance(res, RuntimeError)
+        self.assertIn("celular", str(res))
+        web.assert_not_called()
 
     def test_uncertain_publish_is_never_repeated(self):
         res, web, _ = self._go(instagram.UncertainPublish("sin respuesta"))
         self.assertIsInstance(res, instagram.UncertainPublish)
         web.assert_not_called()
 
-    def test_without_browser_session_explains(self):
-        res, web, _ = self._go(RuntimeError("fallo"), connected=False)
-        self.assertIn("Conexiones", str(res))
-        web.assert_not_called()
+    def test_instagram_not_a_browser_platform(self):
+        self.assertNotIn("instagram", browser.PLATFORMS)  # ni iniciar sesión ni publicar con el navegador
 
     def test_fallback_can_be_disabled(self):
         res, web, _ = self._go(RuntimeError("fallo"), p={**P, "meta_fallback": False})

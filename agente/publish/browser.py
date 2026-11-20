@@ -24,7 +24,9 @@ from typing import Callable
 from ..paths import DATA_DIR
 
 ROOT = DATA_DIR / "navegador"
-PLATFORMS = ("youtube", "tiktok", "instagram")
+# Instagram ya no: el 2026-11-19 suspendió la cuenta por «comportamientos automatizados» al publicar con este
+# navegador. Instagram solo se publica por la API oficial de Meta (pipeline._instagram).
+PLATFORMS = ("youtube", "tiktok")
 LOGIN_URL = {"youtube": "https://studio.youtube.com", "tiktok": "https://www.tiktok.com/login?lang=es",
              "instagram": "https://www.instagram.com/accounts/login/"}
 SESSION_COOKIE = {"youtube": ("SAPISID", "youtube.com"), "tiktok": ("sessionid", "tiktok.com"),

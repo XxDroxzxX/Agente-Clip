@@ -55,6 +55,12 @@ implementación literal, y prefiere opciones gratuitas y sin instalación junto 
   sube como video de página; el video largo se reintenta una vez. Nunca se reintenta si la orden de publicar quedó
   sin respuesta (`instagram.UncertainPublish`, error «(publicación)» de Facebook). Verificado 2026-11-15: la API
   falló con short_2 y el respaldo lo publicó.
+- **Instagram suspendió la cuenta (2026-11-19) por «comportamientos automatizados»**: casi todos los Reels se habían
+  publicado con el respaldo por navegador (la API daba `ProcessingFailedError`), en ráfagas, con una cuenta nueva; cayó
+  subiendo el video largo de 5 min por la web. Desde entonces: Instagram **solo por la API oficial**
+  (`pipeline._instagram` sin navegador; `browser.PLATFORMS` ya no incluye instagram; sesión guardada borrada), solo
+  Shorts (el largo no va a Instagram) y, si la API falla, queda pendiente para subirlo desde el celular. NUNCA volver
+  a automatizar instagram.com. `upload_instagram` quedó en browser.py sin uso.
 - YouTube miniatura (2026-11-17): escribir en el `input#file-loader` oculto no hace nada; hay que pulsar «Subir
   archivo» (`ytcp-thumbnail-uploader #select-button`) y usar el selector de archivos (`browser._yt_thumbnail`). Si el
   canal no verificó el teléfono, ese botón abre un aviso «debes verificar tu número de teléfono» (era la causa real):

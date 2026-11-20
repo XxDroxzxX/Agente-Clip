@@ -388,7 +388,7 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
             targets.append((key, "tiktok"))
         if p["facebook"]:
             targets.append((key, "facebook"))
-        if p.get("instagram") and (is_short or everywhere):
+        if p.get("instagram") and is_short:  # el video largo no va a Instagram (se bloqueó la cuenta subiéndolo)
             targets.append((key, "instagram"))
     # el video largo primero en cada red: así los Shorts ya pueden enlazarlo
     targets.sort(key=lambda t: t[0] != "long")
@@ -540,30 +540,19 @@ def _retry_thumbnail(run: Run, key: str, p: dict) -> None:
 
 
 def _instagram(run: Run, p: dict, video, caption: str, prog, key: str) -> dict:
-    """API de Meta y, si falla sin haber publicado, respaldo por navegador (instagram.com con la sesión guardada)."""
-    from .publish import browser, instagram
+    """Solo la API oficial de Meta. El 2026-11-19 Instagram suspendió la cuenta por «comportamientos
+    automatizados»: el respaldo que publicaba con un navegador automatizado ya no existe para Instagram. Si la API
+    falla, el Short queda pendiente para subirlo a mano desde el celular."""
+    from .publish import instagram
     try:
         return instagram.upload_reel(video, caption, p["facebook_graph_version"], prog)
     except instagram.UncertainPublish:
-        raise  # podría estar publicado: reintentar por otra vía lo duplicaría
+        raise  # podría estar publicado: reintentar lo duplicaría
     except Exception as e:
-        if not p.get("meta_fallback", True):
-            raise
-        if not browser.status("instagram").get("connected"):
-            raise RuntimeError(f"{e} Para que se publique solo por otra vía cuando esto pase, inicia sesión en "
-                               "Instagram en Configuración → Conexiones (respaldo por navegador).")
-        reason = str(e).split(" Es un fallo intermitente")[0][:200]  # sin la explicación larga (salía cortada)
-        run.warn(f"instagram: la API de Meta falló con {key} ({reason}); se publica por navegador.", "publish")
-        prog(0.0)
-        # la etiqueta de IA solo se marca si el usuario lo pide (por defecto no)
-        ai = bool(p.get("ai_label")) and "Generado con IA" in (run.state["items"].get(key, {}).get("credits") or [])
-        res = browser.upload_instagram(video, caption, prog, visible=bool(p.get("browser_visible")), ai_generated=ai)
-        res["note"] = (res.get("note", "") + " Publicado por navegador porque la API de Meta falló.").strip()
-        code = (res.get("url") or "").rstrip("/").rsplit("/", 1)[-1]
-        api_id = instagram.media_id_for(code, p["facebook_graph_version"]) if code else None
-        if api_id:  # con el id de la API se pueden leer sus métricas
-            res["platform_id"] = api_id
-        return res
+        reason = str(e).split(" Es un fallo intermitente")[0][:240]
+        raise RuntimeError(f"{reason} No se reintenta por navegador: Instagram bloquea las cuentas que publican con "
+                           "herramientas automáticas. Súbelo desde la app de Instagram en tu celular (el video está "
+                           f"en la carpeta del run: {key}/final.mp4).") from e
 
 
 def _facebook(run: Run, p: dict, video, plan, desc: str, tags: str, prog, key: str) -> dict:
