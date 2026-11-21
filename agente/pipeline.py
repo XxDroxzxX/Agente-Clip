@@ -422,9 +422,7 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
         long_up = (_long_upload(run, platform) or _long_upload(run, "youtube")) if link and key != "long" else None
         if long_up and long_up.get("url"):
             body = f"{FULL_STORY.get(lang, FULL_STORY['en'])}: {long_up['url']}\n\n{body}"
-        desc = f"{body}\n\n{tags}"
-        if credits:
-            desc += "\n\nMaterial visual: " + "; ".join(credits[:6])
+        desc = f"{body}\n\n{tags}" + credits_line(credits)
         yt_long = _long_upload(run, "youtube") if link and key != "long" and platform == "youtube" else None
         base = n / len(targets)
 
@@ -478,6 +476,12 @@ def step_publish(run: Run, cfg: dict, respect_review: bool = False) -> None:
         learning.add_history(history)
     # con algún error el paso queda en rojo: el botón «Publicar» reintenta solo lo que falló
     run.step_end("publish", "done" if failed == 0 else "failed", f"{ok} publicados, {failed} con error")
+
+
+def credits_line(credits: list[str]) -> str:
+    """Créditos del material de stock para la descripción. Las tomas IA no se declaran (decisión del usuario)."""
+    stock = [c for c in credits if c != visuals.AI_CREDIT]
+    return ("\n\nMaterial visual: " + "; ".join(stock[:6])) if stock else ""
 
 
 FULL_STORY = {"es": "▶ Historia completa", "en": "▶ Full story", "pt": "▶ História completa",

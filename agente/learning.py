@@ -146,6 +146,14 @@ def _traits(h: dict) -> dict:
 
 TRAIT_LABELS = {"music_mood": "música", "duration_short": "duración de los Shorts",
                 "duration_long": "duración del video largo", "animations": "animaciones", "voice_engine": "voz"}
+# valores internos (sin tildes, se guardan así en learning.json) → texto para mostrar
+VALUE_LABELS = {"energetico": "enérgica", "alegre": "alegre", "inspirador": "inspiradora", "tranquilo": "tranquila",
+                "misterioso": "misteriosa", "emotivo": "emotiva", "tecnologico": "tecnológica",
+                "edge": "Edge", "gemini": "Gemini"}
+
+
+def value_label(value: str) -> str:
+    return VALUE_LABELS.get(str(value), str(value))
 
 
 def insights(min_n: int = 2) -> list[str]:
@@ -158,7 +166,7 @@ def insights(min_n: int = 2) -> list[str]:
         best = max(good.items(), key=lambda kv: kv[1]["mean"])
         worst = min(good.items(), key=lambda kv: kv[1]["mean"])
         if best[1]["mean"] - worst[1]["mean"] > 0.1:
-            out.append(f"{TRAIT_LABELS.get(dim, dim)}: rinde mejor «{best[0]}» que «{worst[0]}»")
+            out.append(f"{TRAIT_LABELS.get(dim, dim)}: rinde mejor «{value_label(best[0])}» que «{value_label(worst[0])}»")
     return out
 
 

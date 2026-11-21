@@ -758,8 +758,16 @@ async function publishRun(runId) {
 async function loadHistory() {
   const grid = $("#historyGrid");
   try {
-    const runs = await api("/api/runs");
-    if (!runs.length) { grid.innerHTML = '<div class="card muted">Todavía no hay runs. Inicia el primero desde el panel en vivo.</div>'; return; }
+    const all = await api("/api/runs");
+    // las actualizaciones de métricas son diarias y tapaban los videos: ocultas salvo que se pidan
+    const showMetrics = $("#showMetricRuns").checked;
+    const runs = showMetrics ? all : all.filter((r) => r.options.mode !== "metrics");
+    if (!runs.length) {
+      grid.innerHTML = all.length
+        ? '<div class="card muted">Solo hay actualizaciones de métricas. Marca «Mostrar actualizaciones de métricas» para verlas.</div>'
+        : '<div class="card muted">Todavía no hay runs. Inicia el primero desde el panel en vivo.</div>';
+      return;
+    }
     grid.innerHTML = runs.map((r) => {
       const plats = [...new Set(r.uploads.map((u) => u.platform))];
       const items = Object.keys(r.items);
@@ -793,6 +801,11 @@ async function loadHistory() {
   } catch (e) { grid.innerHTML = `<div class="card">${esc(e.message)}</div>`; }
 }
 $("#btnRefreshHistory").onclick = loadHistory;
+try { $("#showMetricRuns").checked = localStorage.getItem("showMetricRuns") === "1"; } catch {}
+$("#showMetricRuns").onchange = (e) => {
+  try { localStorage.setItem("showMetricRuns", e.target.checked ? "1" : "0"); } catch {}
+  loadHistory();
+};
 
 /* ════════════════════════════════════════════════════════════
    Calendario de publicaciones

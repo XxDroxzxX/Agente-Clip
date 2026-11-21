@@ -84,5 +84,14 @@ class FacebookFallbackTest(unittest.TestCase):
         vid.assert_not_called()
 
 
+class DescriptionCreditsTest(unittest.TestCase):
+    def test_ai_shots_are_not_declared(self):
+        # decisión del usuario: no declarar contenido IA en las publicaciones
+        self.assertEqual(pipeline.credits_line(["Generado con IA"]), "")
+        line = pipeline.credits_line(["Generado con IA", "Pexels: Ana", "Generado con IA"])
+        self.assertEqual(line, "\n\nMaterial visual: Pexels: Ana")
+        self.assertNotIn("IA", line)
+
+
 if __name__ == "__main__":
     unittest.main()

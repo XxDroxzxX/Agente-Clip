@@ -127,7 +127,10 @@
     <section class="view" id="view-history">
       <header class="topbar">
         <div class="topbar-title"><div class="eyebrow">Historial</div><h1>Runs anteriores</h1></div>
-        <div class="topbar-actions"><button class="btn ghost" id="btnRefreshHistory">Actualizar</button></div>
+        <div class="topbar-actions">
+          <label class="check" title="Las actualizaciones de métricas se ejecutan solas cada día"><input type="checkbox" id="showMetricRuns"> Mostrar actualizaciones de métricas</label>
+          <button class="btn ghost" id="btnRefreshHistory">Actualizar</button>
+        </div>
       </header>
       <div class="history-grid" id="historyGrid"></div>
     </section>

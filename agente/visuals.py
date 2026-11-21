@@ -27,6 +27,7 @@ from . import settings as S
 from .paths import CACHE_DIR
 
 SHOT_SECONDS = 5.0  # duración objetivo de cada toma (ritmo de cortes)
+AI_CREDIT = "Generado con IA"  # crédito interno de las tomas IA; nunca va en las descripciones publicadas
 
 
 @dataclass
@@ -706,7 +707,7 @@ def _generate_ai(ai, shot: Shot, i: int, prev_clip: Path | None, out_dir: Path,
         ffmpeg.run(["-f", "concat", "-safe", "0", "-i", lst.name, "-an", "-c:v", "libx264", "-preset", "veryfast",
                     "-crf", "16", "-pix_fmt", "yuv420p", joined.name], cwd=out_dir)  # segmentos de distinto origen
         shot.source = joined
-    shot.kind, shot.credit = "video", "Generado con IA"
+    shot.kind, shot.credit = "video", AI_CREDIT
     return prev_clip
 
 
@@ -826,7 +827,7 @@ def fetch_for_item(shots: list[Shot], portrait: bool, min_side: int, cfg: dict, 
                 if still:
                     # lo ya generado para esta toma (aprobado o la imagen clave del personaje) encaja mejor que un
                     # clip de stock buscado a ciegas (en un run salió una playa soleada en una historia de terror)
-                    shot.source, shot.credit, shot.kind = still, "Generado con IA", \
+                    shot.source, shot.credit, shot.kind = still, AI_CREDIT, \
                         "video" if still.suffix == ".mp4" else "image"
                     log(f"Toma {i+1}: se usa lo ya generado con IA ({still.name}).", "info")
                 elif found:
